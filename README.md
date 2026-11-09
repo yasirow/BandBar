@@ -280,8 +280,8 @@ Done: 0.2.0 — drag and remember the position, stacked layout for vertical task
 applied without a restart. 0.3.0 — full screen per monitor and at start-up, program list, show/hide hotkey.
 0.4.0 — zone menu, Limiter/Blocker/Priorities states, Blocker alert, open NetLimiter. 0.5.0 — `WFP?` status,
 contrast themes, FAQ. 0.6.0 — the bar on other monitors' taskbars. 0.7.0 — one-line layout, bit units, font
-settings, dimming when idle, totals in the tooltip, build provenance. See [CHANGELOG.md](CHANGELOG.md) for every
-release.
+settings, dimming when idle, totals in the tooltip, build provenance (all published together as 0.7.1). See
+[CHANGELOG.md](CHANGELOG.md) for every release.
 
 ## Contributing
 

@@ -223,8 +223,9 @@ because messages can contain paths.
   and the taskbar is not changed. This only subscribes the bar to shell notifications:
   `ABN_POSCHANGED`, `ABN_STATECHANGE`, `ABN_FULLSCREENAPP`. It unregisters with `ABM_REMOVE`.
 - **Other triggers:** `WM_DISPLAYCHANGE`, `WM_DPICHANGED`, `WM_SETTINGCHANGE` (`SPI_SETWORKAREA`) and the
-  `TaskbarCreated` message (Explorer restarted: register again). Bursts are coalesced into one reposition after
-  100 ms. There is no polling timer.
+  `TaskbarCreated` message (Explorer restarted: `ABM_REMOVE`, then `ABM_NEW` again; a bar for another taskbar may
+  already be registered with the new taskbar, and `ABM_NEW` fails for a registered window). Bursts are coalesced into
+  one reposition after 100 ms. There is no polling timer.
 - **Growing notification area:** the shell sends no notification when the notification area grows (a new tray
   icon, a wider clock). In the default position the notification area's rectangle is compared on each once-per-second
   reading the bar already receives — one `GetWindowRect`, no extra timer.

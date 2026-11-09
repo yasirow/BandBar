@@ -8,6 +8,20 @@ milestone is a minor release (`0.x.0`) and fixes in between are patch releases (
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-11-09
+
+The first release since 0.1.5: it also contains 0.2.0 to 0.7.0, which were not published separately.
+
+### Fixed
+- After Explorer restarted, a bar on another monitor's taskbar could log "AppBar registration failed" and lose track
+  of its registration: BandBar re-creates that bar as soon as the new taskbar appears, and the bar then registered a
+  second time when Explorer announced the new taskbar. A bar now removes its registration before registering again.
+
+### Changed
+- With `"logLevel": "debug"`, the log records each shell notification (full screen, taskbar state and position) per
+  bar, and warnings say which bar they come from. Times in the window-order lines count from start-up instead of
+  showing 0 ms before the first event.
+
 ## [0.7.0] - 2026-11-09
 
 ### Added
@@ -274,12 +288,13 @@ Initial preview.
 - An auto-hiding taskbar is not supported yet.
 - If the app is started while a full-screen game is already running, it does not hide until that game closes.
 
-[Unreleased]: https://github.com/yasirow/BandBar/compare/v0.7.0...HEAD
-[0.7.0]: https://github.com/yasirow/BandBar/releases/tag/v0.7.0
-[0.6.0]: https://github.com/yasirow/BandBar/releases/tag/v0.6.0
-[0.5.0]: https://github.com/yasirow/BandBar/releases/tag/v0.5.0
-[0.4.0]: https://github.com/yasirow/BandBar/releases/tag/v0.4.0
-[0.3.0]: https://github.com/yasirow/BandBar/releases/tag/v0.3.0
+[Unreleased]: https://github.com/yasirow/BandBar/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/yasirow/BandBar/releases/tag/v0.7.1
+[0.7.0]: https://github.com/yasirow/BandBar/blob/main/CHANGELOG.md#070---2026-11-09
+[0.6.0]: https://github.com/yasirow/BandBar/blob/main/CHANGELOG.md#060---2026-11-09
+[0.5.0]: https://github.com/yasirow/BandBar/blob/main/CHANGELOG.md#050---2026-11-09
+[0.4.0]: https://github.com/yasirow/BandBar/blob/main/CHANGELOG.md#040---2026-11-09
+[0.3.0]: https://github.com/yasirow/BandBar/blob/main/CHANGELOG.md#030---2026-11-09
 [0.2.0]: https://github.com/yasirow/BandBar/blob/main/CHANGELOG.md#020---2026-11-09
 [0.1.5]: https://github.com/yasirow/BandBar/releases/tag/v0.1.5
 [0.1.4]: https://github.com/yasirow/BandBar/releases/tag/v0.1.4

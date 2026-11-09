@@ -83,7 +83,7 @@ namespace BandBar
         private IntPtr taskbarWindow;
         private TaskbarInfo? currentTaskbar;
         private int zOrderChecksLeft;
-        private readonly System.Diagnostics.Stopwatch zOrderClock = new System.Diagnostics.Stopwatch();
+        private readonly System.Diagnostics.Stopwatch zOrderClock = System.Diagnostics.Stopwatch.StartNew();
         private string zOrderReason = "start-up";
         private int zOrderLogged;
         private IntPtr notificationArea;
@@ -390,7 +390,10 @@ namespace BandBar
                 // Explorer restarted: the old AppBar registration, window handles and taskbar thread are gone with it.
                 // A bar on another taskbar lives on until the host's next check replaces it with one for the new window.
                 Log.Info(Who + "Taskbar recreated; registering again");
-                appBarHandle = IntPtr.Zero;
+                // A bar for another taskbar that the host created after the new taskbar appeared is registered with
+                // it already, and ABM_NEW fails for a registered window: remove first. For the old registration the
+                // new taskbar knows nothing of, ABM_REMOVE does nothing.
+                UnregisterAppBar();
                 RemoveTaskbarLocationHook();
                 taskbarWindow = IntPtr.Zero;
                 currentTaskbar = null; // the new taskbar may be elsewhere; judge it by its own rectangle
@@ -676,7 +679,7 @@ namespace BandBar
             if (SHAppBarMessage(ABM_NEW, ref abd) != UIntPtr.Zero)
                 appBarHandle = Handle;
             else
-                Log.Warn("AppBar registration failed; full-screen and taskbar notifications are unavailable");
+                Log.Warn(Who + "AppBar registration failed; full-screen and taskbar notifications are unavailable");
         }
 
         private void UnregisterAppBar()
@@ -690,6 +693,11 @@ namespace BandBar
 
         private void OnAppBarNotification(int code, IntPtr lParam)
         {
+            if (Log.IsDebugEnabled)
+                Log.Debug(Who + "Shell notification "
+                          + (code == ABN_STATECHANGE ? "ABN_STATECHANGE" : code == ABN_POSCHANGED ? "ABN_POSCHANGED"
+                             : code == ABN_FULLSCREENAPP ? "ABN_FULLSCREENAPP(" + (lParam != IntPtr.Zero ? "opened)" : "closed)")
+                             : code.ToString(System.Globalization.CultureInfo.InvariantCulture)));
             switch (code)
             {
                 case ABN_FULLSCREENAPP:

@@ -15,7 +15,7 @@ body:
     attributes:
       label: BandBar version
       description: Hover the bar; the first line of the tooltip shows it.
-      placeholder: "0.7.0"
+      placeholder: "0.7.1"
     validations:
       required: true
   - type: input
