@@ -37,6 +37,7 @@ namespace BandBar.Api
         private INlSession session;
         private int failedAttempts;
         private bool zoneMissingLogged;
+        private bool filteringOffLogged;
         private LinkStatus lastStatus = LinkStatus.Connecting;
         private string lastDetail;
 
@@ -207,8 +208,18 @@ namespace BandBar.Api
                     }
                 }
 
+                if (rate.FilteringOff != filteringOffLogged)
+                {
+                    filteringOffLogged = rate.FilteringOff;
+                    if (rate.FilteringOff)
+                        Log.Warn("Windows' Base Filtering Engine is not running; NetLimiter cannot see traffic");
+                    else
+                        Log.Info("Windows' Base Filtering Engine is running again");
+                }
+
                 Publish(new Reading(LinkStatus.Connected, rate.Down, rate.Up, current.ZoneName, current.ServiceVersion,
-                                    zoneId: current.ZoneId, details: details, blockerRequests: requests), null);
+                                    zoneId: current.ZoneId, details: details, blockerRequests: requests,
+                                    filteringOff: rate.FilteringOff), null);
                 return true;
             }
             catch (Exception ex)

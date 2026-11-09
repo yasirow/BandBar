@@ -32,6 +32,7 @@ The log (`bandbar.log`, next to the executable) should contain no `WARN` or `ERR
 | B6 | Lock (Win+L) and unlock | The bar keeps updating after unlock |
 | B7 | Settings → Personalization → Colors: switch the Windows mode between Light and Dark | The text turns dark on the light taskbar and white on the dark one, without restarting BandBar |
 | B8 | Show the accent colour on the taskbar (Colors → "Show accent color on Start and taskbar") with a light and with a dark accent | The text stays readable |
+| B9 | Settings → Accessibility → Contrast themes: apply a dark one (for example Night sky) and a light one (Desert), then switch contrast themes off | The text takes the contrast theme's text colour each time and returns to normal afterwards, without restarting BandBar; the arrows keep their colours |
 
 ### Taskbar
 
@@ -107,7 +108,19 @@ The log (`bandbar.log`, next to the executable) should contain no `WARN` or `ERR
 |---|---|---|
 | S1 | Stop the NetLimiter service (`services.msc`, needs administrator; protection pauses briefly) | Bar shows grey arrows and `—`; no dialog |
 | S2 | Start the service again | Speeds return within a few seconds |
-| S3 | Start BandBar on a PC without NetLimiter | Bar shows `NL?`; no dialog |
+| S3 | Start BandBar on a PC without NetLimiter — or start a **Debug** build with `BANDBAR_API_DIR` set to an empty folder (see CONTRIBUTING.md) | Bar shows `NL?`; no dialog |
+| S4 | Start a **Debug** build with `BANDBAR_API_DIR` set to a folder that holds an unsigned file named `NetLimiter.dll` | Bar shows `API?`; the log says the signature is not valid; nothing from that folder is loaded |
+| S5 | On a test PC only: stop the *Base Filtering Engine* service (needs administrator; it also stops Windows Firewall), then start it again | Bar shows `WFP?` with grey arrows and the tooltip explains it; the speeds return when the service runs again |
+
+### Windows 10 and several monitors
+
+| # | Steps | Expected |
+|---|---|---|
+| W1 | On Windows 10 (22H2), run B1–B9, T1–T6 and F1–F2 | Same results as on Windows 11, except the Windows 10 limitation in T7 |
+| W2 | On Windows 10, turn on "Use small taskbar buttons" | Both lines still fit (the font gets smaller); nothing is cut off |
+| M1 | Two monitors, taskbar shown on all displays | The bar sits on the main monitor's taskbar only |
+| M2 | Two monitors with different scaling (for example 100 % and 150 %) | The bar has the size that fits the main monitor's taskbar; moving windows between monitors changes nothing |
+| M3 | Settings → System → Display: make the other monitor the main display, then switch back | The bar moves to the new main taskbar each time |
 
 ### Installer (release candidates)
 
@@ -133,3 +146,4 @@ The log (`bandbar.log`, next to the executable) should contain no `WARN` or `ERR
 | 0.2.0 | Windows 11, NetLimiter 5.3 | Automated checks and 94 unit tests pass; the build writes nothing to the user profile or temp folder. Passed: B1, B2, B4, P1–P4, C1 (opens in Notepad), C2, C3 (warning logged, settings kept, the fix applied at once), F1–F2, F6, T1 (after the desktop-click fix the bar is back within ~50 ms; hidden while Start is open, measured as a Windows band change). Pending: C4 (drag after a fix), C5, P5, H1–H3, T8. P6 needs a tool that moves the Windows 11 taskbar to a side |
 | 0.3.0 | Windows 11, NetLimiter 5.3 | Automated checks and 123 unit tests pass. Manual tests pending (F5, F7–F10; F7 needs a second monitor) |
 | 0.4.0 | Windows 11, NetLimiter 5.3 | Automated checks and 125 unit tests pass. Manual tests pending (N1–N6) |
+| 0.5.0 | Windows 11, NetLimiter 5.3 | Automated checks and 125 unit tests pass. S3 (with the Debug override) and S4 passed. Connected normally: speeds as before, no `WFP?`. Pending: B9, S5 (test PC only), W1–W2 (Windows 10), M1–M3 |

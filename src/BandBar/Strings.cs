@@ -26,6 +26,12 @@ namespace BandBar
             ? "Blocker: " + count + " bağlantı onay bekliyor (tıklayınca NetLimiter açılır)"
             : "Blocker: " + count + (count == 1 ? " connection" : " connections") + " waiting for approval (click to open NetLimiter)";
         public static string Zone => "Zone";
+
+        /// <summary>Drawn in the bar while Windows' Base Filtering Engine is stopped.</summary>
+        public static string FilteringOffShort => "WFP?";
+        public static string FilteringOff => Tr
+            ? "Windows Temel Filtreleme Altyapısı (BFE) çalışmıyor: NetLimiter trafiği göremiyor"
+            : "Windows' Base Filtering Engine (BFE) is not running: NetLimiter cannot see traffic";
         public static string Elevated => Tr ? "Yönetici olarak çalışıyor (gerekli değil)" : "Running as administrator (not needed)";
 
         /// <summary>Full sentence for the tooltip.</summary>

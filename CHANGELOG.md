@@ -8,6 +8,30 @@ milestone is a minor release (`0.x.0`) and fixes in between are patch releases (
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-11-09
+
+### Added
+- **`WFP?` status:** when Windows' Base Filtering Engine service is stopped, NetLimiter cannot see any traffic. The
+  bar now shows `WFP?` with grey arrows, and the tooltip explains why, instead of a misleading 0.
+- **Contrast themes:** with `"theme": "auto"`, the text takes the text colour of an active Windows contrast theme,
+  and follows when a contrast theme is switched on or off.
+- README: an FAQ (SmartScreen, anti-cheat, why not a taskbar toolbar, Start menu, taskbar tools, several
+  monitors, updating NetLimiter). New `SUPPORT.md` with where to ask what.
+- For developers: Debug builds read `BANDBAR_API_DIR` to load NetLimiter's API from another folder, so the `NL?`
+  and `API?` states can be tested without touching NetLimiter (see CONTRIBUTING.md). Release builds do not contain
+  this.
+
+### Changed
+- The bar reuses its drawing buffer instead of allocating a new one for every redraw.
+- Code signing is no longer planned. Releases keep being built by GitHub Actions from the tagged source and come
+  with SHA-256 checksums; the roadmap now lists taskbars on secondary monitors for 0.6.0.
+
+### Security
+- Two read-only Windows calls for contrast themes: `SystemParametersInfo(SPI_GETHIGHCONTRAST)` (never a setting
+  change) and `GetSysColor` (docs/DESIGN.md §7.2).
+- The API folder override exists only in Debug builds (`#if DEBUG`); the allow-list and the signature check apply
+  to it unchanged.
+
 ## [0.4.0] - 2026-11-09
 
 ### Added
@@ -206,7 +230,8 @@ Initial preview.
 - An auto-hiding taskbar is not supported yet.
 - If the app is started while a full-screen game is already running, it does not hide until that game closes.
 
-[Unreleased]: https://github.com/yasirow/BandBar/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/yasirow/BandBar/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/yasirow/BandBar/releases/tag/v0.5.0
 [0.4.0]: https://github.com/yasirow/BandBar/releases/tag/v0.4.0
 [0.3.0]: https://github.com/yasirow/BandBar/releases/tag/v0.3.0
 [0.2.0]: https://github.com/yasirow/BandBar/blob/main/CHANGELOG.md#020---2026-11-09

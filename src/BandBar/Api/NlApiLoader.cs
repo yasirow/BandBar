@@ -205,6 +205,16 @@ namespace BandBar.Api
         // Read-only: the NetLimiter uninstall entry's InstallLocation, then the default location.
         private static string FindInstallDir()
         {
+#if DEBUG
+            // Debug builds only (docs/DESIGN.md §3.1): test "NL?" and "API?" without touching NetLimiter. The checks
+            // below the folder choice stay the same. Release builds do not contain this code.
+            string overrideDir = Environment.GetEnvironmentVariable("BANDBAR_API_DIR");
+            if (overrideDir != null)
+            {
+                Log.Warn("Debug build: NetLimiter API folder taken from BANDBAR_API_DIR");
+                return ContainsApi(overrideDir) ? overrideDir.Trim().Trim('"') : null;
+            }
+#endif
             foreach (RegistryView view in new[] { RegistryView.Registry64, RegistryView.Registry32 })
             {
                 try

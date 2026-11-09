@@ -16,6 +16,7 @@ namespace BandBar.Api
         private readonly NodeLoader loader;
         private readonly uint zoneInternalId;
         private readonly Action onDisconnected;
+        private bool bfeCheckUnavailable;
 
         private NlSession(NLClient client, NodeLoader loader, Filter zone, Action onDisconnected)
         {
@@ -59,16 +60,39 @@ namespace BandBar.Api
         public Rate Read()
         {
             loader.Load();
+            bool filteringOff = FilteringStopped();
             foreach (FilterNode node in loader.Filters.Nodes)
             {
                 if (node.FilterId == zoneInternalId)
                 {
                     INLFlowValue<uint> rate = node.TransferRate;
-                    return new Rate(rate.In, rate.Out, zoneFound: true);
+                    return new Rate(rate.In, rate.Out, zoneFound: true, filteringOff);
                 }
             }
-            return new Rate(0, 0, zoneFound: false);
+            return new Rate(0, 0, zoneFound: false, filteringOff);
         }
+
+        // Windows' Base Filtering Engine stopped means NetLimiter sees no traffic (docs/DESIGN.md §3.3). An installed
+        // API without the member only skips the check, for the rest of the session.
+        private bool FilteringStopped()
+        {
+            if (bfeCheckUnavailable)
+                return false;
+            try
+            {
+                return !ReadBfeRunning();
+            }
+            catch (MissingMemberException ex)
+            {
+                bfeCheckUnavailable = true;
+                Log.Warn("This NetLimiter version does not report the Base Filtering Engine; check skipped", ex);
+                return false;
+            }
+        }
+
+        // A separate method, so that a missing member fails when this one is compiled, inside the caller's try.
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private bool ReadBfeRunning() => client.IsBfeRunning;
 
         // Read only (docs/DESIGN.md §3.4): the feature switches are only looked at, never set.
         public NlDetails ReadDetails()

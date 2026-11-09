@@ -91,7 +91,7 @@ once .NET Framework 4.8 is installed from Microsoft; the setup checks for it and
 | `SHA256SUMS.txt` | To verify your download. |
 
 > [!TIP]
-> Releases are not code-signed yet, so Windows SmartScreen may warn on first run — choose **More info → Run
+> Releases are not code-signed, so Windows SmartScreen may warn on first run — choose **More info → Run
 > anyway**. To check that a file is exactly what the build produced, run
 > `Get-FileHash .\BandBar-Setup-x.y.z.exe -Algorithm SHA256` in PowerShell and compare the hash with
 > `SHA256SUMS.txt`. Every release is built by [GitHub Actions](https://github.com/yasirow/BandBar/actions) from
@@ -137,6 +137,7 @@ For the portable version, exit the bar and delete its folder.
 | Speeds with coloured arrows | Connected and up to date |
 | `…` | Connecting to NetLimiter |
 | `—` | The NetLimiter service is not running; BandBar reconnects automatically |
+| `WFP?` | Connected, but Windows' Base Filtering Engine service is stopped, so NetLimiter cannot see any traffic |
 | `denied` | NetLimiter refused access (the Windows user needs NetLimiter's *Monitor* right) |
 | `API?` | NetLimiter's files failed the signature check, or this NetLimiter version is not compatible |
 | `NL?` | NetLimiter is not installed |
@@ -154,8 +155,8 @@ restart needed. For example, to show two decimals, use units of 1000 and a diffe
 If the file has a mistake, the bar keeps its current settings until you fix it (the log says why). BandBar itself
 only ever changes the position (`anchorOffsetDip`) when you drag the bar, and leaves the rest of the file as it is.
 
-The text colour follows your Windows taskbar (light or dark). If a taskbar tool paints its own colours and the text
-is hard to read, set `"theme": "dark"` (white text) or `"theme": "light"` (dark text). With an auto-hiding taskbar,
+The text colour follows your Windows taskbar (light or dark, or the text colour of a Windows contrast theme). If a
+taskbar tool paints its own colours and the text is hard to read, set `"theme": "dark"` (white text) or `"theme": "light"` (dark text). With an auto-hiding taskbar,
 `"followAutoHideTaskbar": false` keeps the bar visible at the screen edge instead of hiding it with the taskbar.
 
 To hide the bar while particular programs are in front (for example a game you play in a window), and to show or
@@ -183,6 +184,64 @@ BandBar is built to be invisible to games and anti-cheat systems:
 The full list of rules, and every Windows function the app is allowed to call, is in
 [docs/DESIGN.md](docs/DESIGN.md#7-security-model).
 
+## FAQ
+
+<details>
+<summary><b>Windows SmartScreen warns when I run the setup. Is that expected?</b></summary>
+
+Yes. Releases are not code-signed, and SmartScreen warns about unsigned programs it has not seen often. Choose
+**More info → Run anyway**. To make sure the file is the one GitHub Actions built from the published source, compare
+its SHA-256 hash with `SHA256SUMS.txt` (see [Install](#install)).
+</details>
+
+<details>
+<summary><b>Can it get me banned by an anti-cheat system?</b></summary>
+
+BandBar is built so that it has nothing to do with games: no hooks, no injection, no handles to other processes, no
+overlay, and it hides completely while a full-screen game is in front. See
+[Games, anti-cheat and privacy](#games-anti-cheat-and-privacy). No independent tool can promise what a game
+publisher's anti-cheat will decide, but BandBar does nothing that such systems look for.
+</details>
+
+<details>
+<summary><b>Why a separate window instead of a real taskbar toolbar?</b></summary>
+
+Windows 11 removed taskbar toolbars ("deskbands"), the mechanism NetLimiter's own bar uses. Putting anything inside
+the taskbar now means changing Explorer — injecting code into it or re-parenting windows into the taskbar — which
+can break with a Windows update and take the whole taskbar down with it. BandBar stays an ordinary window that only
+sits on top of the taskbar. The price: it cannot reserve space there, so with many taskbar buttons you may need to
+drag it to a free place.
+</details>
+
+<details>
+<summary><b>The bar disappears while Start or Search is open.</b></summary>
+
+That is Windows 11: while Start or Search is open, it lifts the taskbar into the Start menu's own layer, above every
+application window, and only Windows' shell components can draw there. The bar is back as soon as the menu closes.
+</details>
+
+<details>
+<summary><b>I use a tool that changes or recolours the taskbar.</b></summary>
+
+BandBar reads the taskbar's position from Windows, so a moved taskbar is followed. If a tool hides the notification
+area from Windows, the bar falls back to a place near the end of the taskbar — drag it where you want it. If a tool
+paints its own colours, set `"theme": "dark"` or `"light"` (see [Settings](#settings)).
+</details>
+
+<details>
+<summary><b>Does it work with several monitors?</b></summary>
+
+The bar sits on the main monitor's taskbar. A full-screen game or video on another monitor does not hide it; one on
+the bar's monitor does. Taskbars on other monitors are on the [roadmap](#roadmap).
+</details>
+
+<details>
+<summary><b>The NetLimiter update says files are in use.</b></summary>
+
+Exit BandBar first (right-click → Exit), update NetLimiter, then start BandBar again. While it runs, BandBar keeps
+NetLimiter's API files loaded.
+</details>
+
 ## Build from source
 
 ```powershell
@@ -198,13 +257,13 @@ install the SDK inside the repository folder, how to create the release packages
 
 | Version | Planned |
 |---|---|
-| 0.5.0 | Taskbars on secondary monitors, light/dark theme refinements, code signing, winget |
+| 0.6.0 | Taskbars on secondary monitors |
 | 1.0.0 | Stable release |
 
 Done: 0.2.0 — drag and remember the position, stacked layout for vertical taskbars, auto-hiding taskbars, settings
 applied without a restart. 0.3.0 — full screen per monitor and at start-up, program list, show/hide hotkey.
-0.4.0 — zone menu, Limiter/Blocker/Priorities states, Blocker alert, open NetLimiter. See
-[CHANGELOG.md](CHANGELOG.md) for every release.
+0.4.0 — zone menu, Limiter/Blocker/Priorities states, Blocker alert, open NetLimiter. 0.5.0 — `WFP?` status,
+contrast themes, FAQ. See [CHANGELOG.md](CHANGELOG.md) for every release.
 
 ## Contributing
 

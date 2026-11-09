@@ -56,6 +56,17 @@ The unit tests cover what can be checked without a desktop: speed formatting, re
 `settings.json`, and the log scrubber. Everything that involves the taskbar is in the
 [manual test plan](docs/TESTING.md).
 
+To see the `NL?` and `API?` states without uninstalling or changing NetLimiter, run a **Debug** build with the
+environment variable `BANDBAR_API_DIR` pointing at another folder: an empty folder acts as "NetLimiter not
+installed", a folder with any unsigned file named `NetLimiter.dll` as a failed signature check. Release builds do
+not contain this override ([docs/DESIGN.md §3.1](docs/DESIGN.md#31-where-it-comes-from)).
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\build.ps1 -Configuration Debug
+$env:BANDBAR_API_DIR = "$env:TEMP\no-netlimiter"; New-Item -ItemType Directory -Force $env:BANDBAR_API_DIR | Out-Null
+.\src\BandBar\bin\Debug\net48\BandBar.exe
+```
+
 ## Making a change
 
 1. Open an issue first for anything bigger than a small fix, so we can agree on the approach.

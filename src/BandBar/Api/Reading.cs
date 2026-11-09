@@ -18,9 +18,10 @@ namespace BandBar.Api
 
         public Reading(LinkStatus status, uint down = 0, uint up = 0, string zoneName = null,
                        string serviceVersion = null, string detail = null, string zoneId = null,
-                       NlDetails details = null, int blockerRequests = 0)
+                       NlDetails details = null, int blockerRequests = 0, bool filteringOff = false)
         {
             Status = status;
+            FilteringOff = filteringOff;
             Down = down;
             Up = up;
             ZoneName = zoneName;
@@ -40,6 +41,12 @@ namespace BandBar.Api
         /// <summary>Connections waiting for the Blocker's approval.</summary>
         public int BlockerRequests { get; }
 
+        /// <summary>
+        /// Connected, but Windows' Base Filtering Engine is stopped: NetLimiter sees no traffic, so the speeds are
+        /// meaningless (docs/DESIGN.md §3.3).
+        /// </summary>
+        public bool FilteringOff { get; }
+
         public LinkStatus Status { get; }
 
         /// <summary>Bytes per second.</summary>
@@ -58,16 +65,20 @@ namespace BandBar.Api
     /// <summary>Rate of the selected zone, bytes per second.</summary>
     internal readonly struct Rate
     {
-        public Rate(uint down, uint up, bool zoneFound)
+        public Rate(uint down, uint up, bool zoneFound, bool filteringOff)
         {
             Down = down;
             Up = up;
             ZoneFound = zoneFound;
+            FilteringOff = filteringOff;
         }
 
         public uint Down { get; }
         public uint Up { get; }
         public bool ZoneFound { get; }
+
+        /// <summary>Windows' Base Filtering Engine is stopped (see <see cref="Reading.FilteringOff"/>).</summary>
+        public bool FilteringOff { get; }
     }
 
     /// <summary>A NetLimiter zone, for the Zone menu.</summary>

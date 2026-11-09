@@ -197,11 +197,16 @@ namespace BandBar
             BackgroundColor = background.HasValue ? Color.FromArgb((int)Math.Round(Opacity * 255), background.Value) : (Color?)null;
         }
 
-        /// <summary>Text colour for the current theme: dark text on a light taskbar, white text otherwise.</summary>
+        /// <summary>
+        /// Text colour for the current theme: the contrast theme's text colour while one is on, otherwise dark text on
+        /// a light taskbar and white text on a dark one.
+        /// </summary>
         public Color ResolveTextColor()
         {
             if (TextColorOverride.HasValue)
                 return TextColorOverride.Value;
+            if (Theme == "auto" && SystemTheme.ContrastThemeTextColor() is Color contrast)
+                return contrast;
             bool light = Theme == "light" || (Theme == "auto" && SystemTheme.TaskbarIsLight());
             return light ? Color.FromArgb(0x1A, 0x1A, 0x1A) : Color.White;
         }

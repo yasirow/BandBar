@@ -57,6 +57,7 @@ namespace BandBar
 
         private Settings settings;
         private BarLayout layout;
+        private Bitmap canvas;
         private FileSystemWatcher settingsWatcher;
         private int settingsReloadAttempts;
         private IntPtr appBarHandle;
@@ -260,6 +261,7 @@ namespace BandBar
                 toolTip.Dispose();
                 menu.Dispose();
                 layout?.Dispose();
+                canvas?.Dispose();
             }
             base.Dispose(disposing);
         }
@@ -285,8 +287,13 @@ namespace BandBar
                 case WM_SETTINGCHANGE:
                     if (m.WParam.ToInt64() == SPI_SETWORKAREA)
                         ScheduleReposition();
+                    else if (m.WParam.ToInt64() == SPI_SETHIGHCONTRAST)
+                        OnThemeChanged(); // contrast theme switched on or off
                     else if (m.LParam != IntPtr.Zero && Marshal.PtrToStringUni(m.LParam) == "ImmersiveColorSet")
                         OnThemeChanged(); // light/dark mode switched
+                    break;
+                case WM_SYSCOLORCHANGE:
+                    OnThemeChanged(); // contrast theme colours changed
                     break;
                 case WM_DWMCOLORIZATIONCOLORCHANGED:
                     OnThemeChanged(); // accent colour changed
@@ -967,7 +974,8 @@ namespace BandBar
             {
                 layout?.Dispose();
                 layout = new BarLayout(taskbar.Dpi, taskbar.IsVertical, thickness, SpeedFormat.WidestNumber(settings),
-                    SpeedFormat.Units, Enum.GetValues(typeof(LinkStatus)).Cast<LinkStatus>().Select(Strings.Short));
+                    SpeedFormat.Units, Enum.GetValues(typeof(LinkStatus)).Cast<LinkStatus>().Select(Strings.Short)
+                                                .Concat(new[] { Strings.FilteringOffShort }));
             }
 
             Size size = layout.Size;
@@ -1157,22 +1165,25 @@ namespace BandBar
             if (layout == null || !IsHandleCreated || IsDisposed)
                 return;
 
-            bool live = reading.Status == LinkStatus.Connected;
-            Size size = layout.Size;
-            using (var bitmap = new Bitmap(Math.Max(1, size.Width), Math.Max(1, size.Height), PixelFormat.Format32bppArgb))
+            bool live = reading.Status == LinkStatus.Connected && !reading.FilteringOff;
+            Size size = new Size(Math.Max(1, layout.Size.Width), Math.Max(1, layout.Size.Height));
+            // The buffer is reused while the size stays the same (docs/DESIGN.md §4); Clear repaints every pixel.
+            if (canvas == null || canvas.Size != size)
             {
-                using (Graphics g = Graphics.FromImage(bitmap))
-                {
-                    g.Clear(reading.BlockerRequests > 0 ? BlockerAlertBackground : settings.BackgroundColor ?? HitTestableClear);
-                    layout.Draw(g, upText, downText,
-                        live ? settings.UploadColor : InactiveArrowColor,
-                        live ? settings.DownloadColor : InactiveArrowColor,
-                        textColor);
-                }
-                int error = LayeredWindow.Update(Handle, bitmap, Location);
-                if (error != 0)
-                    Log.Debug("UpdateLayeredWindow failed (" + error + ")");
+                canvas?.Dispose();
+                canvas = new Bitmap(size.Width, size.Height, PixelFormat.Format32bppArgb);
             }
+            using (Graphics g = Graphics.FromImage(canvas))
+            {
+                g.Clear(reading.BlockerRequests > 0 ? BlockerAlertBackground : settings.BackgroundColor ?? HitTestableClear);
+                layout.Draw(g, upText, downText,
+                    live ? settings.UploadColor : InactiveArrowColor,
+                    live ? settings.DownloadColor : InactiveArrowColor,
+                    textColor);
+            }
+            int error = LayeredWindow.Update(Handle, canvas, Location);
+            if (error != 0)
+                Log.Debug("UpdateLayeredWindow failed (" + error + ")");
         }
 
         private void OnThemeChanged()
@@ -1203,6 +1214,8 @@ namespace BandBar
         {
             switch (r.Status)
             {
+                case LinkStatus.Connected when r.FilteringOff:
+                    return (SpeedText.Status(Strings.FilteringOffShort), SpeedText.Status(""));
                 case LinkStatus.Connected:
                     return (SpeedFormat.Format(r.Up, settings), SpeedFormat.Format(r.Down, settings));
                 case LinkStatus.Connecting:
@@ -1240,6 +1253,8 @@ namespace BandBar
             if (reading.ZoneName != null)
                 sb.Append('\n').Append(Strings.Zone).Append(": ").Append(reading.ZoneName);
             sb.Append('\n').Append(Strings.Describe(reading.Status));
+            if (reading.Status == LinkStatus.Connected && reading.FilteringOff)
+                sb.Append('\n').Append(Strings.FilteringOff);
             if (reading.ServiceVersion != null)
                 sb.Append('\n').Append("NetLimiter ").Append(reading.ServiceVersion);
             if (reading.Status != LinkStatus.Connected && reading.Detail != null)

@@ -1,5 +1,7 @@
 using System;
+using System.Drawing;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Security;
 using Microsoft.Win32;
 
@@ -33,6 +35,20 @@ namespace BandBar
                 Log.Debug("Taskbar theme not readable; assuming dark", ex);
                 return false;
             }
+        }
+
+        /// <summary>
+        /// The text colour of the active Windows contrast theme, or null when no contrast theme is on. Read only:
+        /// <c>SPI_GETHIGHCONTRAST</c> and <c>GetSysColor</c>, never a setter.
+        /// </summary>
+        public static Color? ContrastThemeTextColor()
+        {
+            var data = new NativeMethods.HIGHCONTRAST { CbSize = (uint)Marshal.SizeOf(typeof(NativeMethods.HIGHCONTRAST)) };
+            if (!NativeMethods.SystemParametersInfo(NativeMethods.SPI_GETHIGHCONTRAST, data.CbSize, ref data, 0)
+                || (data.DwFlags & NativeMethods.HCF_HIGHCONTRASTON) == 0)
+                return null;
+            uint bgr = NativeMethods.GetSysColor(NativeMethods.COLOR_WINDOWTEXT); // 0x00BBGGRR
+            return Color.FromArgb((int)(bgr & 0xFF), (int)((bgr >> 8) & 0xFF), (int)((bgr >> 16) & 0xFF));
         }
 
         private static bool AccentIsLight()

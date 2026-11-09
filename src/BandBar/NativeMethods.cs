@@ -18,6 +18,8 @@ namespace BandBar
 
         public const int MA_NOACTIVATE = 3;
         public const int SPI_SETWORKAREA = 0x002F;
+        public const int SPI_SETHIGHCONTRAST = 0x0043;
+        public const int WM_SYSCOLORCHANGE = 0x0015;
 
         // Window styles
         public const int WS_POPUP = unchecked((int)0x80000000);
@@ -323,6 +325,28 @@ namespace BandBar
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool UnregisterHotKey(IntPtr hWnd, int id);
+
+        // ---- Contrast themes (docs/DESIGN.md §4), read only ----
+
+        public const uint SPI_GETHIGHCONTRAST = 0x0042;
+        public const uint HCF_HIGHCONTRASTON = 0x00000001;
+        public const int COLOR_WINDOWTEXT = 8;
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct HIGHCONTRAST
+        {
+            public uint CbSize;
+            public uint DwFlags;
+            public IntPtr LpszDefaultScheme;
+        }
+
+        /// <summary>Only ever called with <see cref="SPI_GETHIGHCONTRAST"/>; never with an SPI_SET… action.</summary>
+        [DllImport("user32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        public static extern bool SystemParametersInfo(uint uiAction, uint uiParam, ref HIGHCONTRAST pvParam, uint fWinIni);
+
+        [DllImport("user32.dll")]
+        public static extern uint GetSysColor(int nIndex);
 
         [DllImport("wintrust.dll", ExactSpelling = true)]
         public static extern int WinVerifyTrust(IntPtr hwnd, [MarshalAs(UnmanagedType.LPStruct)] Guid pgActionID, ref WINTRUST_DATA pWVTData);
