@@ -11,7 +11,7 @@ real desktop. Every release goes through the automated checks below and the manu
 | NetLimiter API pin | `VerifyNetLimiterApi` target | The compile-time `NetLimiter.dll` does not match the pinned SHA-256 |
 | Locked restore | `build.ps1` | A package differs from `packages.lock.json` |
 | Single-file output | `VerifyOutputIsSingleExe` target | The output contains anything besides `BandBar.exe` and `BandBar.exe.config` |
-| Unit tests | `tests/BandBar.Tests` via `build.ps1 -Test` (always run by `tools/package.ps1`, so by CI and the release workflow) | Speed formatting, `settings.json` reading and writing (strict JSON, keys and order kept, invalid files never overwritten, no temporary file left) or the log scrubber misbehave |
+| Unit tests | `tests/BandBar.Tests` via `build.ps1 -Test` (always run by `tools/package.ps1`, so by CI and the release workflow) | Speed formatting, `settings.json` reading and writing (strict JSON, keys and order kept, invalid files never overwritten, no temporary file left), the log scrubber, the program list (including reading a name from the process snapshot) or hotkey parsing misbehave |
 | Installer build | `tools/package.ps1 -RequireInstaller` (CI) | The Inno Setup script does not compile |
 | Tag matches version | Release workflow | The pushed tag differs from `<Version>` in the project |
 
@@ -83,8 +83,12 @@ The log (`bandbar.log`, next to the executable) should contain no `WARN` or `ERR
 | F2 | Leave the game or Alt+Tab to the desktop | The bar comes back |
 | F3 | Repeat F1–F2 with exclusive full screen | Same as F1–F2 |
 | F4 | Play a game protected by anti-cheat | No warning, kick or stutter |
-| F5 | Start BandBar while a full-screen game is already in front | Known limitation until 0.3.0: the bar stays visible until that game closes |
+| F5 | Start BandBar while a full-screen game is already in front (for example from a shortcut key or a script) | The bar starts hidden (`A full-screen application is already in front` in the log) and appears when the game closes or you switch away |
 | F6 | Drag the bar, then start a full-screen game | The bar hides as usual and comes back at its dragged place |
+| F7 | With two monitors: a full-screen video or game on the *other* monitor | The bar stays visible (`on another monitor; staying visible`); moving the full-screen window to the bar's monitor hides it |
+| F8 | Set `"fullscreenExeList": ["notepad.exe"]`, then switch between Notepad and another window | The bar hides while Notepad is in front and returns when it is not; the log does not name the program |
+| F9 | Set `"hotkey": "Ctrl+Alt+B"` and press it twice | The bar hides and comes back; removing `hotkey` from the file while hidden brings the bar back |
+| F10 | Set a hotkey another program already uses | A `WARN` explains it; the bar keeps working |
 
 ### Service and failure handling
 
@@ -115,4 +119,5 @@ The log (`bandbar.log`, next to the executable) should contain no `WARN` or `ERR
 | 0.1.3 | Windows 11, NetLimiter 5.3 | I1 passed (per-user install, Start menu entry, optional startup shortcut). Installer built and checksums verified by CI |
 | 0.1.4 | Windows 11, NetLimiter 5.3 | Rename release (no behaviour change). I1 passed (installed per user with startup shortcut, runs); I3 passed for the previous version (uninstall left no folder, shortcut or uninstall entry); I4 verified by CI and after download |
 | 0.1.5 | Windows 11, NetLimiter 5.3 | B2, B7, B8 passed (text follows light/dark mode and accent colour without restart); normal use unaffected. T1: a brief flicker remains on Start and taskbar right-click (known limitation; check interval shortened from 50 to ~16 ms afterwards). I1–I5 pending on the published build; later I1 and I4 passed (clean install of the published setup, checksums match) |
-| 0.2.0 | Windows 11, NetLimiter 5.3 | Automated checks and 94 unit tests pass; the build writes nothing to the user profile or temp folder. Passed: B1, B2, B4, P1–P4, C1 (opens in Notepad), C2, F1–F2, F6, T1 (after the desktop-click fix the bar is back within ~50 ms; hidden while Start is open, measured as a Windows band change). Pending: C3, C4, C5, P5, P6, H1–H3, T8 |
+| 0.2.0 | Windows 11, NetLimiter 5.3 | Automated checks and 94 unit tests pass; the build writes nothing to the user profile or temp folder. Passed: B1, B2, B4, P1–P4, C1 (opens in Notepad), C2, C3 (warning logged, settings kept, the fix applied at once), F1–F2, F6, T1 (after the desktop-click fix the bar is back within ~50 ms; hidden while Start is open, measured as a Windows band change). Pending: C4 (drag after a fix), C5, P5, H1–H3, T8. P6 needs a tool that moves the Windows 11 taskbar to a side |
+| 0.3.0 | Windows 11, NetLimiter 5.3 | Automated checks and 123 unit tests pass. Manual tests pending (F5, F7–F10; F7 needs a second monitor) |

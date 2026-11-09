@@ -25,6 +25,8 @@ namespace BandBar.Tests
                 Assert.IsNull(s.AnchorOffsetDip);
                 Assert.IsTrue(s.HideOnFullscreen);
                 Assert.IsTrue(s.FollowAutoHideTaskbar);
+                Assert.AreEqual(0, s.ListedApps.Length);
+                Assert.IsNull(s.Hotkey);
                 Assert.AreEqual("info", s.LogLevel);
                 Assert.AreEqual(Color.FromArgb(0xE7, 0x4C, 0x3C), s.UploadColor);
                 Assert.AreEqual(Color.FromArgb(0x2E, 0xCC, 0x71), s.DownloadColor);
@@ -73,8 +75,11 @@ namespace BandBar.Tests
             {
                 folder.WriteSettings("{ \"zoneFilterId\": \"zone-1\", \"unitBase\": 1000, \"anchorOffsetDip\": 300, "
                                      + "\"hideOnFullscreen\": false, \"followAutoHideTaskbar\": false, \"logLevel\": \"debug\", "
-                                     + "\"opacity\": 0.5, \"colors\": { \"text\": \"#101010\", \"background\": \"#000000\" } }");
+                                     + "\"opacity\": 0.5, \"colors\": { \"text\": \"#101010\", \"background\": \"#000000\" }, "
+                                     + "\"fullscreenExeList\": [\"Game.exe\", \"other\"], \"hotkey\": \" Ctrl+Alt+B \" }");
                 Settings s = Load(folder);
+                CollectionAssert.AreEqual(new[] { "game", "other" }, s.ListedApps);
+                Assert.AreEqual("Ctrl+Alt+B", s.Hotkey);
                 Assert.AreEqual("zone-1", s.ZoneFilterId);
                 Assert.AreEqual(1000, s.UnitBase);
                 Assert.AreEqual(300, s.AnchorOffsetDip);

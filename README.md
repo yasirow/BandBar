@@ -61,7 +61,8 @@ separate window that never modifies the taskbar or any other program.
   anywhere along the taskbar and it remembers the place. On a narrow left or right taskbar it stacks the number
   and the unit; with an auto-hiding taskbar it hides and shows together with it.
 - **Gets out of the way of games** — hides completely, and stops reading, while a full-screen or borderless
-  windowed application is in front.
+  windowed application is in front on its monitor, also when the game was already running before BandBar started.
+  Optionally it hides for programs you list, and with a show/hide hotkey.
 - **Light** — one ~100 KB executable, no runtime to install; about 0.02 % CPU while idle.
 - **Safe by design** — no administrator rights, no network, no hooks or injection, no writes outside its own
   folder. NetLimiter's API is loaded from your own NetLimiter installation and its signature is verified first.
@@ -153,15 +154,24 @@ The text colour follows your Windows taskbar (light or dark). If a taskbar tool 
 is hard to read, set `"theme": "dark"` (white text) or `"theme": "light"` (dark text). With an auto-hiding taskbar,
 `"followAutoHideTaskbar": false` keeps the bar visible at the screen edge instead of hiding it with the taskbar.
 
+To hide the bar while particular programs are in front (for example a game you play in a window), and to show or
+hide it with a hotkey:
+
+```json
+{ "fullscreenExeList": ["game.exe"], "hotkey": "Ctrl+Alt+B" }
+```
+
 All keys are listed in [docs/DESIGN.md](docs/DESIGN.md#81-settingsjson).
 
 ## Games, anti-cheat and privacy
 
 BandBar is built to be invisible to games and anti-cheat systems:
 
-- It installs no hooks, injects nothing, opens no handles to games and draws no overlay.
+- It installs no hooks, injects nothing, opens no handles to games and draws no overlay. The optional program list
+  is matched against Windows' process list, without touching the programs.
 - It learns about full-screen applications from the same Windows notification the taskbar uses, then hides
   completely so it cannot interfere with full-screen optimisations.
+- The optional hotkey is a regular Windows hotkey, not a keyboard hook.
 - It runs as your normal user and never asks for administrator rights.
 - It opens no network connections and collects no data. Its log stays on your PC and masks your user name, paths
   and computer name.
@@ -184,13 +194,13 @@ install the SDK inside the repository folder, how to create the release packages
 
 | Version | Planned |
 |---|---|
-| 0.3.0 | Multi-monitor full-screen detection; detect a game that is already full screen at start-up; optional game list and show/hide hotkey |
 | 0.4.0 | Menu: choose the zone, open NetLimiter, switch Limiter / Blocker / Priorities (within NetLimiter's own permissions), Blocker request alerts, open the Releases page |
 | 0.5.0 | Taskbars on secondary monitors, light/dark theme refinements, code signing, winget |
 | 1.0.0 | Stable release |
 
 Done: 0.2.0 — drag and remember the position, stacked layout for vertical taskbars, auto-hiding taskbars, settings
-applied without a restart. See [CHANGELOG.md](CHANGELOG.md) for every release.
+applied without a restart. 0.3.0 — full screen per monitor and at start-up, program list, show/hide hotkey. See
+[CHANGELOG.md](CHANGELOG.md) for every release.
 
 ## Contributing
 

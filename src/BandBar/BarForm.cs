@@ -23,6 +23,7 @@ namespace BandBar
         private const int TrayGapDip = 4;
         private const int FallbackOffsetDip = 220;
         private const string AnchorOffsetKey = "anchorOffsetDip";
+        private const int HotkeyId = 1;
         // After a shell event, check about once per frame (the Windows timer resolution, ~16 ms) for ~600 ms whether
         // the taskbar has raised itself over the bar.
         private const int ZOrderCheckIntervalMs = 16;
@@ -71,6 +72,15 @@ namespace BandBar
         private bool fullscreen;
         private bool autoHide;
         private bool hiddenWithTaskbar;
+        // Hidden at start-up because the shell said a full-screen application was in front (no notification yet).
+        private bool fullscreenAssumed;
+        // The shell reported full screen, but on another monitor; the bar stayed visible.
+        private bool fullscreenElsewhere;
+        private bool listedAppInFront;
+        private uint listedCachePid;
+        private bool listedCacheResult;
+        private bool userHidden;
+        private bool hotkeyRegistered;
         private bool sessionLocked;
         private bool dragArmed;
         private bool dragging;
@@ -193,7 +203,10 @@ namespace BandBar
         {
             base.OnShown(e);
             ready = true;
-            UpdateAutoHide(); // may hide the bar at once, so only now that the window is shown
+            // Both may hide the bar at once, so only now that the window is shown.
+            UpdateAutoHide();
+            CheckFullscreenAtStart();
+            UpdateHotkey();
         }
 
         protected override void OnHandleDestroyed(EventArgs e)
@@ -211,6 +224,7 @@ namespace BandBar
                 shellEventHook = IntPtr.Zero;
             }
             RemoveTaskbarLocationHook();
+            UnregisterOwnHotkey();
             StopSettingsWatcher();
             repositionTimer.Stop();
             zOrderTimer.Stop();
@@ -262,6 +276,14 @@ namespace BandBar
                 case WM_DWMCOLORIZATIONCOLORCHANGED:
                     OnThemeChanged(); // accent colour changed
                     break;
+                case WM_HOTKEY:
+                    if (m.WParam.ToInt64() == HotkeyId)
+                    {
+                        userHidden = !userHidden;
+                        Log.Info(userHidden ? "Hidden with the hotkey" : "Shown with the hotkey");
+                        ApplyVisibility();
+                    }
+                    return;
             }
 
             if (taskbarCreatedMessage != 0 && m.Msg == (int)taskbarCreatedMessage)
@@ -274,8 +296,10 @@ namespace BandBar
                 currentTaskbar = null; // the new taskbar may be elsewhere; judge it by its own rectangle
                 notificationArea = IntPtr.Zero;
                 RegisterAppBar();
+                fullscreenAssumed = fullscreenElsewhere = false;
                 SetFullscreen(false);
                 UpdateAutoHide();
+                CheckFullscreenAtStart(); // the new taskbar reports only later changes
                 ScheduleReposition();
             }
 
@@ -431,7 +455,7 @@ namespace BandBar
             switch (code)
             {
                 case ABN_FULLSCREENAPP:
-                    SetFullscreen(lParam != IntPtr.Zero);
+                    OnFullscreenNotification(lParam != IntPtr.Zero);
                     break;
                 case ABN_STATECHANGE:
                     UpdateAutoHide();
@@ -443,7 +467,96 @@ namespace BandBar
             }
         }
 
-        // ---- Visibility: full screen and the auto-hiding taskbar (docs/DESIGN.md §5.2, §6.1) ----
+        // ---- Visibility: full screen, listed programs, the hotkey and the auto-hiding taskbar
+        //      (docs/DESIGN.md §5.2, §6.1) ----
+
+        private void OnFullscreenNotification(bool opened)
+        {
+            fullscreenAssumed = false;
+            fullscreenElsewhere = false;
+            if (opened && !FullscreenOnOurMonitor(GetForegroundWindow()))
+            {
+                // Another monitor's game: stay visible, but watch foreground changes in case one comes here.
+                fullscreenElsewhere = true;
+                Log.Info("Full-screen application on another monitor; staying visible");
+                opened = false;
+            }
+            SetFullscreen(opened);
+        }
+
+        // The shell reports changes only: a game that is already full screen when the bar starts is found by asking.
+        private void CheckFullscreenAtStart()
+        {
+            if (!settings.HideOnFullscreen || !ShellReportsFullscreen())
+                return;
+            IntPtr foreground = GetForegroundWindow();
+            if (foreground == IntPtr.Zero || !CoversItsMonitor(foreground) || !FullscreenOnOurMonitor(foreground))
+                return;
+            Log.Info("A full-screen application is already in front");
+            fullscreenAssumed = true;
+            SetFullscreen(true);
+        }
+
+        /// <summary>
+        /// Whether a full-screen window is on the bar's monitor. When unsure (no window, or one that covers no monitor),
+        /// yes: not disturbing a game ranks above being visible (docs/DESIGN.md §1).
+        /// </summary>
+        private bool FullscreenOnOurMonitor(IntPtr window)
+        {
+            if (window == IntPtr.Zero || window == GetShellWindow() || !CoversItsMonitor(window))
+                return true;
+            return MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST) == MonitorFromWindow(Handle, MONITOR_DEFAULTTONEAREST);
+        }
+
+        private static bool ShellReportsFullscreen() =>
+            SHQueryUserNotificationState(out int state) == 0
+            && (state == QUNS_BUSY || state == QUNS_RUNNING_D3D_FULL_SCREEN);
+
+        // Every foreground change, also while the bar is hidden: listed programs and the full-screen fallbacks.
+        private void OnForegroundChanged(IntPtr window)
+        {
+            if (settings.ListedApps.Length > 0)
+            {
+                bool listed = IsListedApp(window);
+                if (listed != listedAppInFront)
+                {
+                    listedAppInFront = listed;
+                    // The program's name is not logged: the log may be attached to a public issue.
+                    Log.Info(listed ? "A program from fullscreenExeList is in front; hiding" : "No program from fullscreenExeList is in front");
+                    ApplyVisibility();
+                }
+            }
+
+            if (fullscreen && fullscreenAssumed)
+            {
+                // Hidden at start-up without a shell notification: come back once the shell no longer reports one.
+                if (!ShellReportsFullscreen())
+                {
+                    fullscreenAssumed = false;
+                    SetFullscreen(false);
+                }
+            }
+            else if (!fullscreen && fullscreenElsewhere && window != GetShellWindow() && CoversItsMonitor(window)
+                     && FullscreenOnOurMonitor(window) && ShellReportsFullscreen())
+            {
+                // A full-screen window came to the bar's monitor without a new notification.
+                fullscreenElsewhere = false;
+                SetFullscreen(true);
+            }
+        }
+
+        // The image name from the process list snapshot, cached per process ID; never OpenProcess (docs/DESIGN.md §6.1).
+        private bool IsListedApp(IntPtr window)
+        {
+            if (window == IntPtr.Zero || GetWindowThreadProcessId(window, out uint processId) == 0 || processId == 0)
+                return false;
+            if (processId != listedCachePid)
+            {
+                listedCachePid = processId;
+                listedCacheResult = AppList.Contains(settings.ListedApps, AppList.ImageNameOf(processId));
+            }
+            return listedCacheResult;
+        }
 
         private void SetFullscreen(bool value)
         {
@@ -457,9 +570,43 @@ namespace BandBar
             ApplyVisibility();
         }
 
+        // ---- Show/hide hotkey (docs/DESIGN.md §6.1.1): RegisterHotKey, never a keyboard hook ----
+
+        private void UpdateHotkey()
+        {
+            if (!ready || !IsHandleCreated || IsDisposed)
+                return;
+            UnregisterOwnHotkey();
+
+            if (settings.Hotkey != null)
+            {
+                if (!Hotkey.TryParse(settings.Hotkey, out uint modifiers, out uint key))
+                    Log.Warn("The hotkey setting is not understood (example: \"Ctrl+Alt+B\"); no hotkey");
+                else if (RegisterHotKey(Handle, HotkeyId, modifiers | MOD_NOREPEAT, key))
+                    hotkeyRegistered = true;
+                else
+                    Log.Warn("The hotkey is already used by another program; no hotkey");
+            }
+
+            if (!hotkeyRegistered && userHidden)
+            {
+                // Without a hotkey there would be no way to bring the bar back.
+                userHidden = false;
+                ApplyVisibility();
+            }
+        }
+
+        private void UnregisterOwnHotkey()
+        {
+            if (!hotkeyRegistered)
+                return;
+            UnregisterHotKey(Handle, HotkeyId);
+            hotkeyRegistered = false;
+        }
+
         private void ApplyVisibility()
         {
-            bool show = !fullscreen && !hiddenWithTaskbar;
+            bool show = !fullscreen && !hiddenWithTaskbar && !listedAppInFront && !userHidden;
             if (show != shown)
             {
                 shown = show;
@@ -573,7 +720,11 @@ namespace BandBar
         {
             try
             {
-                if (!shown || IsDisposed)
+                if (IsDisposed)
+                    return;
+                if (eventType == EVENT_SYSTEM_FOREGROUND && ready)
+                    OnForegroundChanged(hwnd); // also while hidden: this is how the bar comes back
+                if (!shown)
                     return;
                 if (eventType == EVENT_SYSTEM_FOREGROUND)
                 {
@@ -607,10 +758,14 @@ namespace BandBar
             zOrderTimer.Start();
         }
 
-        private void RaiseIfCoveredByTaskbar()
+        /// <param name="foundBy">For the debug log: a check that is not part of an event's watch window.</param>
+        private void RaiseIfCoveredByTaskbar(string foundBy = null)
         {
             if (!shown || !IsHandleCreated || IsDisposed || !IsCoveredByTaskbar())
                 return;
+            if (foundBy != null && Log.IsDebugEnabled)
+                Log.Debug("Taskbar above the bar, found by " + foundBy + ", " + zOrderClock.ElapsedMilliseconds
+                          + " ms after " + zOrderReason);
             // Directly above the taskbar rather than at the very top, so Start, jump lists and tooltips stay above us.
             IntPtr above = GetWindow(taskbarWindow, GW_HWNDPREV);
             SetWindowPos(Handle, above == IntPtr.Zero ? HWND_TOPMOST : above, 0, 0, 0, 0,
@@ -912,6 +1067,17 @@ namespace BandBar
 
             if (fullscreen && !fresh.HideOnFullscreen)
                 SetFullscreen(false);
+
+            // The list may have changed: judge the program in front again.
+            listedCachePid = 0;
+            if (listedAppInFront || fresh.ListedApps.Length > 0)
+            {
+                listedAppInFront = fresh.ListedApps.Length > 0 && IsListedApp(GetForegroundWindow());
+                ApplyVisibility();
+            }
+            if (fresh.Hotkey != old.Hotkey)
+                UpdateHotkey();
+
             UpdateTaskbarShown();
             Reposition();
             Log.Info("Settings applied");
@@ -992,6 +1158,10 @@ namespace BandBar
                 Render();
             UpdateToolTip();
             FollowNotificationArea();
+            // Fallback for a taskbar that got above the bar without any event (docs/DESIGN.md §6.2): the reading
+            // arrives once a second anyway, so this adds a few GetWindow calls and no timer.
+            if (!dragging)
+                RaiseIfCoveredByTaskbar("the once-a-second check");
         }
 
         private void UpdateToolTip()

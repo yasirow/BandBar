@@ -8,6 +8,26 @@ milestone is a minor release (`0.x.0`) and fixes in between are patch releases (
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-11-09
+
+### Added
+- **Full screen per monitor:** a full-screen game or video on another monitor no longer hides the bar. If a
+  full-screen window later comes to the bar's monitor, the bar hides then. When it cannot tell, it still hides.
+- **A game that is already full screen when BandBar starts** is now detected, and the bar starts hidden.
+- **`fullscreenExeList`:** programs that hide the bar while they are in front, full screen or windowed, for example
+  `["game.exe"]`. A program is recognised from Windows' process list; BandBar never opens a handle to it.
+- **`hotkey`:** an optional show/hide hotkey, for example `"Ctrl+Alt+B"` (at least one modifier). It is a regular
+  Windows hotkey, never a keyboard hook; if another program already uses the combination, the log says so.
+
+### Fixed
+- If the taskbar got above the bar without any event that BandBar watches, the bar could stay hidden until the next
+  click. It now also checks the window order on its once-a-second reading (no extra timer), so this lasts at most
+  about a second.
+
+### Security
+- `OpenProcess` is now explicitly on the "never" list (docs/DESIGN.md §7.1). The game list, first planned with it,
+  reads program names from a snapshot of the process list instead.
+
 ## [0.2.0] - 2026-11-09
 
 ### Added
@@ -168,8 +188,9 @@ Initial preview.
 - An auto-hiding taskbar is not supported yet.
 - If the app is started while a full-screen game is already running, it does not hide until that game closes.
 
-[Unreleased]: https://github.com/yasirow/BandBar/compare/v0.2.0...HEAD
-[0.2.0]: https://github.com/yasirow/BandBar/releases/tag/v0.2.0
+[Unreleased]: https://github.com/yasirow/BandBar/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/yasirow/BandBar/releases/tag/v0.3.0
+[0.2.0]: https://github.com/yasirow/BandBar/blob/main/CHANGELOG.md#020---2026-11-09
 [0.1.5]: https://github.com/yasirow/BandBar/releases/tag/v0.1.5
 [0.1.4]: https://github.com/yasirow/BandBar/releases/tag/v0.1.4
 [0.1.3]: https://github.com/yasirow/BandBar/blob/main/CHANGELOG.md#013---2026-10-14

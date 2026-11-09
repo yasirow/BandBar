@@ -31,7 +31,9 @@ for the full model.
 - Loads NetLimiter's API only from the installed NetLimiter, only an allow-list of eight assemblies, each verified
   with Authenticode against the expected publisher before it is loaded; exits if an API assembly is loaded from
   anywhere else.
-- Installs no hooks and injects nothing into other processes, including Explorer and games.
+- Installs no hooks and injects nothing into other processes, including Explorer and games, and never opens a
+  handle to another process. The optional program list reads names from Windows' process list; the optional
+  hotkey is a regular `RegisterHotKey` hotkey.
 - Writes only to its own folder (or `%LocalAppData%\BandBar`), never to the registry or other programs' files.
 - Starts another program only when the user picks a menu item, and only fixed targets (its own settings file in
   the user's editor, its own folder in File Explorer); never elevated.
@@ -42,7 +44,7 @@ for the full model.
 Every release publishes `SHA256SUMS.txt`. In PowerShell:
 
 ```powershell
-Get-FileHash .\BandBar-Setup-0.2.0.exe -Algorithm SHA256
+Get-FileHash .\BandBar-Setup-0.3.0.exe -Algorithm SHA256
 ```
 
 Compare the result with the line for that file in `SHA256SUMS.txt`. Releases are built by GitHub Actions from the

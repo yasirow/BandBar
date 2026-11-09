@@ -214,11 +214,36 @@ because messages can contain paths.
 
 - **Signal:** `ABN_FULLSCREENAPP` from the shell — the same signal the taskbar uses to hide itself. It covers
   borderless windowed games. No hook, no polling.
+- **Only the bar's own monitor counts.** When the shell reports a full-screen application, the bar looks at the
+  foreground window (`GetForegroundWindow`, `MonitorFromWindow`). If that window covers a *different* monitor, the
+  bar stays visible and remembers that a full-screen application is open elsewhere; a later foreground change to a
+  window that covers the bar's monitor, while the shell still reports full screen
+  (`SHQueryUserNotificationState` → busy or Direct3D full screen), hides it. When in doubt — no foreground window, or
+  one that covers no monitor — the bar hides: not disturbing a game ranks above being visible (§1).
+- **Already in full screen at start-up:** the shell reports only changes, so when the bar starts it asks once
+  (`SHQueryUserNotificationState`). If a full-screen application covers the bar's monitor, the bar starts hidden;
+  it comes back on the shell's "closed" notification or, as a fallback, on the first foreground change after which
+  the shell no longer reports full screen.
+- **Listed programs (`fullscreenExeList`, optional):** the bar also hides while one of these programs is the
+  foreground window, full screen or not. The program is identified by the image name of the foreground window's
+  process: `GetWindowThreadProcessId`, then that process ID in a snapshot of Windows' process list
+  (`CreateToolhelp32Snapshot`, `Process32First`/`Process32Next`). **No handle to the program is ever opened** (no
+  `OpenProcess`), so anti-cheat software has nothing to see. The answer is cached per process ID, and with an empty
+  list nothing of this runs.
 - **Hiding means hiding:** `SWP_HIDEWINDOW` and leaving the topmost band (`HWND_NOTOPMOST`), and the monitor stops
   reading. Making the bar transparent would not be enough: Windows' compositor still counts an overlapping window,
   which can disable full-screen optimisations.
 - **Coming back:** shown again with `SWP_SHOWWINDOW | SWP_NOACTIVATE`, back in the topmost band, one reading
   immediately.
+
+### 6.1.1 Show/hide hotkey
+
+- Optional (`hotkey`, for example `"Ctrl+Alt+B"`; none by default). Registered with `RegisterHotKey` for the bar's
+  own window, with `MOD_NOREPEAT`; **never a keyboard hook**. Pressing it hides the bar (and stops reading) or shows
+  it again. The hidden state lasts until the hotkey is pressed again, the hotkey is removed from the settings, or
+  BandBar restarts.
+- At least one modifier is required, so a plain key is never taken from games. If another program already owns the
+  combination, registration fails, a warning is logged and nothing else happens.
 
 ### 6.2 Staying above the taskbar
 
@@ -233,9 +258,13 @@ offers no "the taskbar moved above you" notification.
 - Menu and mouse-capture events count only when they come from a window of the taskbar
   (`GetAncestor(hwnd, GA_ROOT)` is the taskbar), so clicks in other programs cost nothing. Foreground changes count
   from any window, because Start menus and jump lists are separate windows.
-- On each relevant event, and then about once per frame (~16 ms, the Windows timer resolution) for about 600 ms, the bar checks whether the taskbar is above it by reading
-  the window order (`GetWindow(GW_HWNDPREV)`). Only if it is covered does it move itself directly above the taskbar
-  (not to the very top), so Start, jump lists and tooltips stay above the bar. With no events, nothing runs.
+- On each relevant event, and then about once per frame (~16 ms, the Windows timer resolution) for about 600 ms, the
+  bar checks whether the taskbar is above it by reading the window order (`GetWindow(GW_HWNDPREV)`). Only if it is
+  covered does it move itself directly above the taskbar (not to the very top), so Start, jump lists and tooltips
+  stay above the bar.
+- **Fallback:** the taskbar was once seen above the bar with no event that would have revealed it. The same check
+  therefore also runs on each once-per-second reading the bar already receives while it is visible — a few
+  `GetWindow` calls, no extra timer — so such a case lasts at most about a second.
 - If the new foreground window covers its monitor, the bar does not come forward; the full-screen notification
   hides it instead. The desktop itself (`GetShellWindow`) is the exception: it covers the monitor too, and clicking
   it — for example to close Start — is exactly when the taskbar raises itself.
@@ -254,6 +283,7 @@ offers no "the taskbar moved above you" notification.
 - `SetWindowsHookEx` of any kind (including low-level keyboard and mouse hooks), in-context WinEvent hooks, DLL
   injection, `SetParent` into the taskbar, making the taskbar the bar's owner, or any interaction with another
   process' memory or windows beyond reading positions.
+- Opening a handle to another process (`OpenProcess`), games included.
 - Process memory access, overlays, DirectX/OpenGL/Vulkan layers, drivers.
 - Requesting administrator rights or elevating (`asInvoker` manifest; NetLimiter's elevation calls are never used).
 - Any network connection or listening port. The API's internet features (VirusTotal, DNS, HTTP) are never called.
@@ -270,15 +300,16 @@ offers no "the taskbar moved above you" notification.
 | Taskbar geometry and notifications | `SHAppBarMessage` (`ABM_NEW`, `ABM_REMOVE`, `ABM_GETTASKBARPOS`, `ABM_GETSTATE`; never `ABM_SETPOS`), `FindWindow`, `FindWindowEx`, `GetWindowRect`, `RegisterWindowMessage("TaskbarCreated")` |
 | Monitors and DPI | `MonitorFromRect`, `MonitorFromWindow`, `GetMonitorInfo`, `GetDpiForMonitor` |
 | Our own window | `SetWindowPos`, `UpdateLayeredWindow`, `GetDC`, `ReleaseDC`, `CreateCompatibleDC`, `DeleteDC`, `SelectObject`, `DeleteObject`, `SetForegroundWindow` (only on right-click); mouse capture of our own window while it is dragged (WinForms) |
-| Window order | `SetWinEventHook` (out of context only: `EVENT_SYSTEM_FOREGROUND`…`EVENT_SYSTEM_CAPTUREEND`, and `EVENT_OBJECT_LOCATIONCHANGE` for the taskbar's thread only while it auto-hides), `UnhookWinEvent`, `GetWindow(GW_HWNDPREV)`, `GetAncestor(GA_ROOT)`, `GetWindowThreadProcessId` (the taskbar window only, to restrict that WinEvent), `GetShellWindow` (to tell the desktop from a full-screen application) |
+| Window order | `SetWinEventHook` (out of context only: `EVENT_SYSTEM_FOREGROUND`…`EVENT_SYSTEM_CAPTUREEND`, and `EVENT_OBJECT_LOCATIONCHANGE` for the taskbar's thread only while it auto-hides), `UnhookWinEvent`, `GetWindow(GW_HWNDPREV)`, `GetAncestor(GA_ROOT)`, `GetWindowThreadProcessId` (the taskbar window, to restrict that WinEvent; the foreground window, only with `fullscreenExeList`), `GetShellWindow` (to tell the desktop from a full-screen application) |
+| Full screen | `GetForegroundWindow` (on a full-screen notification, a foreground change and at start-up), `SHQueryUserNotificationState`; with `fullscreenExeList` only: `CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS)`, `Process32First`, `Process32Next`, `CloseHandle` (of that snapshot) — never `OpenProcess` |
+| Hotkey | `RegisterHotKey`, `UnregisterHotKey` (our own window; only when `hotkey` is set) |
 | Our own process | `SetErrorMode` (no error dialogs), `WinVerifyTrust` (API signature, no network) |
 | Our own files | Read, write and watch `settings.json` in our data folder ([§8](#8-files-and-settings)); `FileSystemWatcher` on that folder, for that file name only |
 | Starting a program | `Process.Start` (`ShellExecuteEx`) under the rules in [§7.4](#74-starting-other-programs) |
 | Registry (read only) | NetLimiter's uninstall entry under `HKLM` (install folder); `HKCU` `Themes\Personalize` and `DWM` values (text colour) |
 
-Planned for later milestones and subject to the same rules: `GetForegroundWindow`, `SHQueryUserNotificationState`,
-`RegisterHotKey` (never a keyboard hook), and `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` only if the optional
-game list is enabled.
+The game list was first planned with `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)`; since 0.3.0 the process
+snapshot gives the same name without a handle, so `OpenProcess` stays on the "never" list.
 
 ### 7.3 Failure behaviour
 
@@ -342,8 +373,10 @@ Optional. Read at start-up; ignored (with a log entry) if it is invalid or large
 | `colors.background` | `null` | `null` = transparent; a colour is drawn with `opacity` |
 | `opacity` | `0.85` | Background opacity when a background colour is set |
 | `anchorOffsetDip` | `null` | `null` = before the notification area; otherwise DIP from the taskbar's end (right or bottom). Set by dragging the bar |
-| `hideOnFullscreen` | `true` | Hide while a full-screen application is in front |
+| `hideOnFullscreen` | `true` | Hide while a full-screen application is in front on the bar's monitor |
+| `fullscreenExeList` | `[]` | Programs that also hide the bar while in front, full screen or not, for example `["game.exe"]`; names only, case-insensitive, `.exe` optional, at most 64 |
 | `followAutoHideTaskbar` | `true` | With an auto-hiding taskbar: `true` = show the bar only while the taskbar is shown; `false` = keep it visible at the screen edge |
+| `hotkey` | `null` | Show/hide hotkey, for example `"Ctrl+Alt+B"`: modifiers `Ctrl`, `Alt`, `Shift`, `Win` (at least one) plus a letter, digit or `F1`–`F24` |
 | `logLevel` | `"info"` | `debug`, `info`, `warn`, `error` |
 
 Example:
@@ -414,7 +447,6 @@ SHA-256 checksums.
 
 ## 11. Known limitations
 
-- Started while a full-screen game is already in front, the bar does not hide until that game closes.
 - Only the primary taskbar is used.
 - The bar cannot reserve space on the taskbar; with many taskbar buttons it can overlap them (most likely on
   Windows 10, where taskbar buttons can reach the notification area). It can be dragged to a free place.

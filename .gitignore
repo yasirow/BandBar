@@ -10,9 +10,12 @@ TestResults/
 .packages/
 .nuget/
 
-# Local working notes and the local project guide; never published
+# Local working notes, the local project guide and local tool state; never published
 .private/
 CLAUDE.md
+CLAUDE.local.md
+.claude/
+*.jsonl
 
 # IDE
 .vs/

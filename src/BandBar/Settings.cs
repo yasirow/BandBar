@@ -39,8 +39,12 @@ namespace BandBar
         /// <summary>Null: just before the notification area (docs/DESIGN.md §5.1).</summary>
         [DataMember(Name = "anchorOffsetDip")] public int? AnchorOffsetDip;
         [DataMember(Name = "hideOnFullscreen")] public bool HideOnFullscreen;
+        /// <summary>Programs that hide the bar while in front (docs/DESIGN.md §6.1); see <see cref="ListedApps"/>.</summary>
+        [DataMember(Name = "fullscreenExeList")] public string[] FullscreenExeList;
         /// <summary>With an auto-hiding taskbar, show the bar only while the taskbar is shown (docs/DESIGN.md §5.2).</summary>
         [DataMember(Name = "followAutoHideTaskbar")] public bool FollowAutoHideTaskbar;
+        /// <summary>Show/hide hotkey such as "Ctrl+Alt+B"; null for none (docs/DESIGN.md §6.1.1).</summary>
+        [DataMember(Name = "hotkey")] public string Hotkey;
         [DataMember(Name = "logLevel")] public string LogLevel;
 
         public Settings() => SetDefaults();
@@ -53,6 +57,9 @@ namespace BandBar
 
         /// <summary>Null: transparent, the taskbar shows through (default).</summary>
         public Color? BackgroundColor { get; private set; }
+
+        /// <summary><see cref="FullscreenExeList"/> normalized: names only, lower case, without ".exe".</summary>
+        public string[] ListedApps { get; private set; } = Array.Empty<string>();
 
         public static string FilePath(string dataDir) =>
             dataDir == null ? null : Path.Combine(dataDir, AppPaths.SettingsFileName);
@@ -163,7 +170,9 @@ namespace BandBar
             Opacity = 0.85;
             AnchorOffsetDip = null;
             HideOnFullscreen = true;
+            FullscreenExeList = Array.Empty<string>();
             FollowAutoHideTaskbar = true;
+            Hotkey = null;
             LogLevel = "info";
         }
 
@@ -176,6 +185,8 @@ namespace BandBar
             if (AnchorOffsetDip.HasValue)
                 AnchorOffsetDip = Clamp(AnchorOffsetDip.Value, 0, 10000);
             Colors = Colors ?? new ColorSettings();
+            ListedApps = AppList.Normalize(FullscreenExeList);
+            Hotkey = string.IsNullOrWhiteSpace(Hotkey) ? null : Hotkey.Trim();
 
             string theme = (Theme ?? "").Trim().ToLowerInvariant();
             Theme = theme == "dark" || theme == "light" ? theme : "auto";
