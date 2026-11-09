@@ -59,7 +59,8 @@ separate window that never modifies the taskbar or any other program.
 - **Follows the taskbar** — sits just before the notification area on a top, bottom, left or right taskbar, and
   moves when the taskbar, the tray icons, the resolution or the scaling change, or when Explorer restarts. Drag it
   anywhere along the taskbar and it remembers the place. On a narrow left or right taskbar it stacks the number
-  and the unit; with an auto-hiding taskbar it hides and shows together with it.
+  and the unit; with an auto-hiding taskbar it hides and shows together with it. With several monitors it can sit
+  on the main taskbar, on the others, or on all of them.
 - **Gets out of the way of games** — hides completely, and stops reading, while a full-screen or borderless
   windowed application is in front on its monitor, also when the game was already running before BandBar started.
   Optionally it hides for programs you list, and with a show/hide hotkey.
@@ -127,8 +128,11 @@ For the portable version, exit the bar and delete its folder.
 - **Right-click** the bar for the menu:
   - *Zone* — choose which NetLimiter zone the bar shows (the **Internet** zone by default).
   - *Limiter*, *Blocker*, *Priorities* — ticked when on in NetLimiter (shown only; change them in NetLimiter).
-  - *Open NetLimiter*, *Reset position* (back to its place before the notification area), *Open settings file*,
-    *Open log folder*, *Releases page (GitHub)* and *Exit*.
+  - *Display* — with several monitors, which taskbars show the bar: *Main display* (default), *Other displays*
+    (handy to watch the speed beside a full-screen game on the main monitor) or *All displays*. Windows has to show
+    the taskbar on all displays (Settings → Personalization → Taskbar → Taskbar behaviors).
+  - *Open NetLimiter*, *Reset position* (back to its default place), *Open settings file*, *Open log folder*,
+    *Releases page (GitHub)* and *Exit*.
 - When NetLimiter's **Blocker** has connections waiting for your approval, the bar turns amber; click it to open
   NetLimiter and answer there. BandBar never answers for you.
 
@@ -231,8 +235,11 @@ paints its own colours, set `"theme": "dark"` or `"light"` (see [Settings](#sett
 <details>
 <summary><b>Does it work with several monitors?</b></summary>
 
-The bar sits on the main monitor's taskbar. A full-screen game or video on another monitor does not hide it; one on
-the bar's monitor does. Taskbars on other monitors are on the [roadmap](#roadmap).
+Yes. By default the bar sits on the main monitor's taskbar; right-click → *Display* puts it on the other monitors'
+taskbars or on all of them. Each bar hides only for a full-screen game or video on its own monitor, so with
+*Other displays* you can keep an eye on the speed while playing full screen on the main monitor. On other monitors
+the bar sits a fixed distance from the end of the taskbar (Windows does not reveal where their clock is); drag it
+if it is in the way.
 </details>
 
 <details>
@@ -257,13 +264,13 @@ install the SDK inside the repository folder, how to create the release packages
 
 | Version | Planned |
 |---|---|
-| 0.6.0 | Taskbars on secondary monitors |
 | 1.0.0 | Stable release |
 
 Done: 0.2.0 — drag and remember the position, stacked layout for vertical taskbars, auto-hiding taskbars, settings
 applied without a restart. 0.3.0 — full screen per monitor and at start-up, program list, show/hide hotkey.
 0.4.0 — zone menu, Limiter/Blocker/Priorities states, Blocker alert, open NetLimiter. 0.5.0 — `WFP?` status,
-contrast themes, FAQ. See [CHANGELOG.md](CHANGELOG.md) for every release.
+contrast themes, FAQ. 0.6.0 — the bar on other monitors' taskbars. See [CHANGELOG.md](CHANGELOG.md) for every
+release.
 
 ## Contributing
 

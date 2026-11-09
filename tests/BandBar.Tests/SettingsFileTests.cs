@@ -201,7 +201,8 @@ namespace BandBar.Tests
                 string text = folder.ReadSettings();
                 AssertInOrder(text, "\"schemaVersion\"", "\"zoneFilterId\"", "\"unitBase\"", "\"decimals\"", "\"theme\"",
                     "\"colors\"", "\"upload\"", "\"download\"", "\"text\"", "\"background\"", "\"opacity\"",
-                    "\"anchorOffsetDip\"", "\"hideOnFullscreen\"", "\"fullscreenExeList\": [", "\"followAutoHideTaskbar\"",
+                    "\"anchorOffsetDip\"", "\"taskbars\": \"main\"", "\"otherAnchorOffsetDip\": null",
+                    "\"hideOnFullscreen\"", "\"fullscreenExeList\": [", "\"followAutoHideTaskbar\"",
                     "\"hotkey\": null", "\"logLevel\"");
 
                 Settings created = Load(folder);
@@ -213,6 +214,8 @@ namespace BandBar.Tests
                 Assert.AreEqual(defaults.UploadColor, created.UploadColor);
                 Assert.AreEqual(defaults.DownloadColor, created.DownloadColor);
                 Assert.IsNull(created.AnchorOffsetDip);
+                Assert.IsNull(created.OtherAnchorOffsetDip);
+                Assert.AreEqual(defaults.Taskbars, created.Taskbars);
                 Assert.IsNull(created.ZoneFilterId);
                 Assert.IsTrue(created.HideOnFullscreen);
                 Assert.IsTrue(created.FollowAutoHideTaskbar);

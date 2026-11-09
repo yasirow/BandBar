@@ -118,9 +118,14 @@ The log (`bandbar.log`, next to the executable) should contain no `WARN` or `ERR
 |---|---|---|
 | W1 | On Windows 10 (22H2), run B1–B9, T1–T6 and F1–F2 | Same results as on Windows 11, except the Windows 10 limitation in T7 |
 | W2 | On Windows 10, turn on "Use small taskbar buttons" | Both lines still fit (the font gets smaller); nothing is cut off |
-| M1 | Two monitors, taskbar shown on all displays | The bar sits on the main monitor's taskbar only |
-| M2 | Two monitors with different scaling (for example 100 % and 150 %) | The bar has the size that fits the main monitor's taskbar; moving windows between monitors changes nothing |
-| M3 | Settings → System → Display: make the other monitor the main display, then switch back | The bar moves to the new main taskbar each time |
+| M1 | Two monitors, taskbar shown on all displays, no `taskbars` setting | The bar sits on the main monitor's taskbar only |
+| M2 | Right-click → Display → All displays; then Other displays; then Main display | All: a bar on every taskbar, 220 DIP from the end of the other ones, without a restart. Others: the main taskbar's bar disappears. Main: only the main one again. `taskbars` in `settings.json` follows each choice |
+| M3 | With bars on both taskbars: two monitors with different scaling (for example 100 % and 150 %) | Each bar has the size that fits its own taskbar |
+| M4 | Settings → System → Display: make the other monitor the main display, then switch back | The main bar moves to the new main taskbar, the other bar to the other one |
+| M5 | With *All displays*: drag the bar on the other taskbar, then Reset position on it | Only that bar moves (`otherAnchorOffsetDip` saved, then `null`); the main bar stays |
+| M6 | With *All displays*: turn off "Show my taskbar on all displays", then on again; disconnect and reconnect a monitor | The other bar disappears and comes back by itself within about a second |
+| M7 | With *Other displays* and a single monitor (or the option above off) | The main taskbar keeps its bar |
+| M8 | With *All displays*: a full-screen game or video on one monitor; also `fullscreenExeList` with a program on one monitor | Only the bar on that monitor hides; the other keeps updating |
 
 ### Installer (release candidates)
 
@@ -146,4 +151,5 @@ The log (`bandbar.log`, next to the executable) should contain no `WARN` or `ERR
 | 0.2.0 | Windows 11, NetLimiter 5.3 | Automated checks and 94 unit tests pass; the build writes nothing to the user profile or temp folder. Passed: B1, B2, B4, P1–P4, C1 (opens in Notepad), C2, C3 (warning logged, settings kept, the fix applied at once), F1–F2, F6, T1 (after the desktop-click fix the bar is back within ~50 ms; hidden while Start is open, measured as a Windows band change). Pending: C4 (drag after a fix), C5, P5, H1–H3, T8. P6 needs a tool that moves the Windows 11 taskbar to a side |
 | 0.3.0 | Windows 11, NetLimiter 5.3 | Automated checks and 123 unit tests pass. Manual tests pending (F5, F7–F10; F7 needs a second monitor) |
 | 0.4.0 | Windows 11, NetLimiter 5.3 | Automated checks and 125 unit tests pass. Manual tests pending (N1–N6) |
-| 0.5.0 | Windows 11, NetLimiter 5.3 | Automated checks and 125 unit tests pass. S3 (with the Debug override) and S4 passed. Connected normally: speeds as before, no `WFP?`. Pending: B9, S5 (test PC only), W1–W2 (Windows 10), M1–M3 |
+| 0.5.0 | Windows 11, NetLimiter 5.3 | Automated checks and 125 unit tests pass. S3 (with the Debug override) and S4 passed. Connected normally: speeds as before, no `WFP?`. Pending: B9, S5 (test PC only), W1–W2 (Windows 10) |
+| 0.6.0 | Windows 11, NetLimiter 5.3 | Automated checks and 130 unit tests pass. Manual tests pending (M1–M8) |

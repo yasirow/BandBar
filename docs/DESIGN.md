@@ -186,6 +186,8 @@ because messages can contain paths.
   - *Zone* ▸ the NetLimiter zones, the shown one ticked; choosing one saves `zoneFilterId` ([§8.1](#81-settingsjson)).
   - *Limiter*, *Blocker*, *Priorities*: greyed out, ticked when on — information only ([§3.4](#34-what-else-is-read-menu-and-blocker-alert)).
   - *Open NetLimiter*.
+  - *Display* ▸ *Main display* / *Other displays* / *All displays*: which taskbars get a bar; saves `taskbars`
+    ([§5.3](#53-several-monitors)).
   - *Reset position* (available while a dragged position is saved), *Open settings file*, *Open log folder*,
     *Releases page*.
   - *Exit*.
@@ -247,6 +249,31 @@ because messages can contain paths.
 - When the taskbar slides in, the bar checks the window order as after any other taskbar event, so it does not stay
   under the taskbar.
 
+### 5.3 Several monitors
+
+- **Which taskbars:** `taskbars` ([§8.1](#81-settingsjson)), also chosen in the menu (*Display* ▸ *Main display* /
+  *Other displays* / *All displays*): `"main"` (default) puts the bar on the main taskbar only; `"others"` on every
+  other monitor's taskbar — for example to watch the speed next to a full-screen game on the main monitor — and on
+  the main one when there is no other; `"all"` on every taskbar.
+- **Finding the other taskbars:** Windows shows them only when "Show my taskbar on all displays" is on. They are the
+  top-level `Shell_SecondaryTrayWnd` windows (`FindWindowEx`, read only, at most 16); each one's rectangle, edge and
+  monitor DPI are read like the main taskbar's fallback ([§5](#5-taskbar-tracking)). The list is checked again after
+  display, work-area and DPI changes, after `TaskbarCreated`, and — while bars on other taskbars are wanted — on the
+  once-per-second reading the bar already receives (no extra timer). A bar whose taskbar is gone is closed; a new
+  taskbar gets a bar.
+- **One bar per taskbar:** each is its own window with the same rules as the main one: it registers its own AppBar
+  for notifications ([§5](#5-taskbar-tracking)), hides for a full-screen application on **its** monitor
+  ([§6.1](#61-full-screen)), follows its taskbar when it auto-hides ([§5.2](#52-auto-hiding-taskbar); the location
+  WinEvent is restricted to that taskbar's thread), and stays above **its** taskbar ([§6.2](#62-staying-above-the-taskbar)).
+  There is still only one NetLimiter connection, one settings watcher, one hotkey and one WinEvent range; their
+  events go to every bar. Reading stops when no bar is visible.
+- **Position on other taskbars:** other taskbars expose no notification-area window (Windows 11 draws their clock
+  inside the taskbar), so a bar on another taskbar sits 220 DIP from its end. Dragging any of them saves
+  `otherAnchorOffsetDip`, shared by all other taskbars; *Reset position* on such a bar sets it back to `null`. The
+  main bar keeps `anchorOffsetDip`.
+- **When "others" leaves the main taskbar empty,** the main bar's window still exists, hidden and out of the topmost
+  band like a bar hidden for full screen; it keeps the shared connection and notifications.
+
 ## 6. Full screen and z-order
 
 ### 6.1 Full screen
@@ -264,7 +291,8 @@ because messages can contain paths.
   it comes back on the shell's "closed" notification or, as a fallback, on the first foreground change after which
   the shell no longer reports full screen.
 - **Listed programs (`fullscreenExeList`, optional):** the bar also hides while one of these programs is the
-  foreground window, full screen or not. The program is identified by the image name of the foreground window's
+  foreground window on the bar's monitor, full screen or not; with bars on several taskbars, only the bars on that
+  window's monitor hide. The program is identified by the image name of the foreground window's
   process: `GetWindowThreadProcessId`, then that process ID in a snapshot of Windows' process list
   (`CreateToolhelp32Snapshot`, `Process32First`/`Process32Next`). **No handle to the program is ever opened** (no
   `OpenProcess`), so anti-cheat software has nothing to see. The answer is cached per process ID, and with an empty
@@ -278,8 +306,8 @@ because messages can contain paths.
 ### 6.1.1 Show/hide hotkey
 
 - Optional (`hotkey`, for example `"Ctrl+Alt+B"`; none by default). Registered with `RegisterHotKey` for the bar's
-  own window, with `MOD_NOREPEAT`; **never a keyboard hook**. Pressing it hides the bar (and stops reading) or shows
-  it again. The hidden state lasts until the hotkey is pressed again, the hotkey is removed from the settings, or
+  own window, with `MOD_NOREPEAT`; **never a keyboard hook**. Pressing it hides the bar — every bar, with bars on
+  several taskbars — and stops reading, or shows it again. The hidden state lasts until the hotkey is pressed again, the hotkey is removed from the settings, or
   BandBar restarts.
 - At least one modifier is required, so a plain key is never taken from games. If another program already owns the
   combination, registration fails, a warning is logged and nothing else happens.
@@ -295,7 +323,8 @@ offers no "the taskbar moved above you" notification.
   start/end. Out of context means Windows posts the events to the bar's own message loop; nothing is loaded into
   any other process.
 - Menu and mouse-capture events count only when they come from a window of the taskbar
-  (`GetAncestor(hwnd, GA_ROOT)` is the taskbar), so clicks in other programs cost nothing. Foreground changes count
+  (`GetAncestor(hwnd, GA_ROOT)` is the taskbar; with bars on several taskbars, each bar checks its own), so clicks in
+  other programs cost nothing. Foreground changes count
   from any window, because Start menus and jump lists are separate windows.
 - On each relevant event, and then about once per frame (~16 ms, the Windows timer resolution) for about 600 ms, the
   bar checks whether the taskbar is above it by reading the window order (`GetWindow(GW_HWNDPREV)`). Only if it is
@@ -338,10 +367,10 @@ offers no "the taskbar moved above you" notification.
 
 | Purpose | Calls |
 |---|---|
-| Taskbar geometry and notifications | `SHAppBarMessage` (`ABM_NEW`, `ABM_REMOVE`, `ABM_GETTASKBARPOS`, `ABM_GETSTATE`; never `ABM_SETPOS`), `FindWindow`, `FindWindowEx`, `GetWindowRect`, `RegisterWindowMessage("TaskbarCreated")` |
+| Taskbar geometry and notifications | `SHAppBarMessage` (`ABM_NEW`, `ABM_REMOVE`, `ABM_GETTASKBARPOS`, `ABM_GETSTATE`; never `ABM_SETPOS`), `FindWindow`, `FindWindowEx` (also the top-level `Shell_SecondaryTrayWnd` windows, [§5.3](#53-several-monitors)), `GetWindowRect`, `RegisterWindowMessage("TaskbarCreated")` |
 | Monitors and DPI | `MonitorFromRect`, `MonitorFromWindow`, `GetMonitorInfo`, `GetDpiForMonitor` |
 | Our own window | `SetWindowPos`, `UpdateLayeredWindow`, `GetDC`, `ReleaseDC`, `CreateCompatibleDC`, `DeleteDC`, `SelectObject`, `DeleteObject`, `SetForegroundWindow` (only on right-click); mouse capture of our own window while it is dragged (WinForms) |
-| Window order | `SetWinEventHook` (out of context only: `EVENT_SYSTEM_FOREGROUND`…`EVENT_SYSTEM_CAPTUREEND`, and `EVENT_OBJECT_LOCATIONCHANGE` for the taskbar's thread only while it auto-hides), `UnhookWinEvent`, `GetWindow(GW_HWNDPREV)`, `GetAncestor(GA_ROOT)`, `GetWindowThreadProcessId` (the taskbar window, to restrict that WinEvent; the foreground window, only with `fullscreenExeList`), `GetShellWindow` (to tell the desktop from a full-screen application) |
+| Window order | `SetWinEventHook` (out of context only: `EVENT_SYSTEM_FOREGROUND`…`EVENT_SYSTEM_CAPTUREEND`, and `EVENT_OBJECT_LOCATIONCHANGE` for the taskbar's thread only while it auto-hides), `UnhookWinEvent`, `GetWindow(GW_HWNDPREV)`, `GetAncestor(GA_ROOT)`, `GetWindowThreadProcessId` (a taskbar window, to restrict that WinEvent; the foreground window, only with `fullscreenExeList`), `GetShellWindow` (to tell the desktop from a full-screen application) |
 | Full screen | `GetForegroundWindow` (on a full-screen notification, a foreground change and at start-up), `SHQueryUserNotificationState`; with `fullscreenExeList` only: `CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS)`, `Process32First`, `Process32Next`, `CloseHandle` (of that snapshot) — never `OpenProcess` |
 | Hotkey | `RegisterHotKey`, `UnregisterHotKey` (our own window; only when `hotkey` is set) |
 | Colours (read only) | `SystemParametersInfo(SPI_GETHIGHCONTRAST)` — never an `SPI_SET…` action — and `GetSysColor` (contrast themes) |
@@ -394,9 +423,10 @@ Optional. Read at start-up; ignored (with a log entry) if it is invalid or large
   file is read again 300 ms after the last one and applied without a restart. If the changed file is invalid (for
   example saved half-way through an edit), the current settings stay in effect and a warning is logged; a deleted
   file means the defaults.
-- **What the app writes, and when.** Only on a user action: dragging the bar (`anchorOffsetDip`), *Reset position*
-  (sets `anchorOffsetDip` to `null`), choosing a zone (`zoneFilterId`; the Internet zone is written as `null`) and
-  *Open settings file*. When no file exists yet, whichever of these comes
+- **What the app writes, and when.** Only on a user action: dragging the bar (`anchorOffsetDip`, or
+  `otherAnchorOffsetDip` for a bar on another taskbar), *Reset position* (sets that key to `null`), choosing a zone
+  (`zoneFilterId`; the Internet zone is written as `null`), choosing a *Display* (`taskbars`) and *Open settings
+  file*. When no file exists yet, whichever of these comes
   first creates it with every key below at its default (and the new position), so the user always finds the full
   list in it; resetting with no file creates nothing. An existing file is changed **only in the key concerned**:
   every other key, unknown keys, and their order are kept. An existing file that is invalid or larger than 64 KB is
@@ -416,6 +446,8 @@ Optional. Read at start-up; ignored (with a log entry) if it is invalid or large
 | `colors.background` | `null` | `null` = transparent; a colour is drawn with `opacity` |
 | `opacity` | `0.85` | Background opacity when a background colour is set |
 | `anchorOffsetDip` | `null` | `null` = before the notification area; otherwise DIP from the taskbar's end (right or bottom). Set by dragging the bar |
+| `taskbars` | `"main"` | Which taskbars get a bar: `"main"`, `"others"` (the main one only when there is no other) or `"all"` ([§5.3](#53-several-monitors)). Set by the *Display* menu |
+| `otherAnchorOffsetDip` | `null` | Like `anchorOffsetDip`, for the bars on other taskbars; `null` = 220 DIP from the end. Set by dragging such a bar |
 | `hideOnFullscreen` | `true` | Hide while a full-screen application is in front on the bar's monitor |
 | `fullscreenExeList` | `[]` | Programs that also hide the bar while in front, full screen or not, for example `["game.exe"]`; names only, case-insensitive, `.exe` optional, at most 64 |
 | `followAutoHideTaskbar` | `true` | With an auto-hiding taskbar: `true` = show the bar only while the taskbar is shown; `false` = keep it visible at the screen edge |
@@ -490,7 +522,8 @@ publishes SHA-256 checksums and is built by GitHub Actions from the tagged commi
 
 ## 11. Known limitations
 
-- Only the primary taskbar is used.
+- On other monitors' taskbars the bar cannot find the clock, so it sits a fixed distance from the end; drag it if
+  it overlaps something there.
 - The bar cannot reserve space on the taskbar; with many taskbar buttons it can overlap them (most likely on
   Windows 10, where taskbar buttons can reach the notification area). It can be dragged to a free place.
 - With an auto-hiding taskbar the bar appears when the taskbar has finished sliding in; it does not slide with it.

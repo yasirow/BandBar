@@ -29,6 +29,11 @@ namespace BandBar
     {
         internal const long MaxFileBytes = 64 * 1024;
 
+        // Values of "taskbars" (docs/DESIGN.md §5.3).
+        internal const string TaskbarsMain = "main";
+        internal const string TaskbarsOthers = "others";
+        internal const string TaskbarsAll = "all";
+
         [DataMember(Name = "schemaVersion")] public int SchemaVersion;
         [DataMember(Name = "zoneFilterId")] public string ZoneFilterId;
         [DataMember(Name = "unitBase")] public int UnitBase;
@@ -38,6 +43,10 @@ namespace BandBar
         [DataMember(Name = "opacity")] public double Opacity;
         /// <summary>Null: just before the notification area (docs/DESIGN.md §5.1).</summary>
         [DataMember(Name = "anchorOffsetDip")] public int? AnchorOffsetDip;
+        /// <summary>Which taskbars get a bar: "main", "others" or "all" (docs/DESIGN.md §5.3).</summary>
+        [DataMember(Name = "taskbars")] public string Taskbars;
+        /// <summary>Like <see cref="AnchorOffsetDip"/>, for bars on other taskbars; null: 220 DIP from the end.</summary>
+        [DataMember(Name = "otherAnchorOffsetDip")] public int? OtherAnchorOffsetDip;
         [DataMember(Name = "hideOnFullscreen")] public bool HideOnFullscreen;
         /// <summary>Programs that hide the bar while in front (docs/DESIGN.md §6.1); see <see cref="ListedApps"/>.</summary>
         [DataMember(Name = "fullscreenExeList")] public string[] FullscreenExeList;
@@ -169,6 +178,8 @@ namespace BandBar
             Colors = new ColorSettings();
             Opacity = 0.85;
             AnchorOffsetDip = null;
+            Taskbars = TaskbarsMain;
+            OtherAnchorOffsetDip = null;
             HideOnFullscreen = true;
             FullscreenExeList = Array.Empty<string>();
             FollowAutoHideTaskbar = true;
@@ -184,6 +195,10 @@ namespace BandBar
             Opacity = double.IsNaN(Opacity) ? 0.85 : Math.Max(0.3, Math.Min(1.0, Opacity));
             if (AnchorOffsetDip.HasValue)
                 AnchorOffsetDip = Clamp(AnchorOffsetDip.Value, 0, 10000);
+            if (OtherAnchorOffsetDip.HasValue)
+                OtherAnchorOffsetDip = Clamp(OtherAnchorOffsetDip.Value, 0, 10000);
+            string taskbars = (Taskbars ?? "").Trim().ToLowerInvariant();
+            Taskbars = taskbars == TaskbarsOthers || taskbars == TaskbarsAll ? taskbars : TaskbarsMain;
             Colors = Colors ?? new ColorSettings();
             ListedApps = AppList.Normalize(FullscreenExeList);
             Hotkey = string.IsNullOrWhiteSpace(Hotkey) ? null : Hotkey.Trim();

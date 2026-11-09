@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Imaging;
 using System.IO;
@@ -16,6 +17,12 @@ namespace BandBar
     /// The bar: a borderless, never-activated, topmost, per-pixel-alpha tool window on the taskbar surface
     /// (docs/DESIGN.md). Registers as an AppBar without reserving space, only to receive the shell's taskbar and
     /// full-screen notifications.
+    /// <para>
+    /// The bar on the main taskbar is the <b>host</b>: it owns the NetLimiter connection, the settings watcher, the
+    /// hotkey and the WinEvent range, and passes what they report to the bars on other monitors' taskbars, which it
+    /// creates and closes as those taskbars come and go (docs/DESIGN.md §5.3). Everything else — position, full
+    /// screen, auto-hide, window order — each bar does for its own taskbar.
+    /// </para>
     /// </summary>
     internal sealed class BarForm : Form
     {
@@ -23,6 +30,8 @@ namespace BandBar
         private const int TrayGapDip = 4;
         private const int FallbackOffsetDip = 220;
         private const string AnchorOffsetKey = "anchorOffsetDip";
+        private const string OtherAnchorOffsetKey = "otherAnchorOffsetDip";
+        private const string TaskbarsKey = "taskbars";
         private const int HotkeyId = 1;
         // After a shell event, check about once per frame (the Windows timer resolution, ~16 ms) for ~600 ms whether
         // the taskbar has raised itself over the bar.
@@ -35,9 +44,17 @@ namespace BandBar
         // Invisible, but keeps every pixel of the bar clickable; fully transparent pixels pass clicks through.
         private static readonly Color HitTestableClear = Color.FromArgb(1, 0, 0, 0);
 
+        // Null in the host; the host for a bar on another taskbar.
+        private readonly BarForm host;
+        // Host only: the bars on other monitors' taskbars.
+        private readonly List<BarForm> satellites = new List<BarForm>();
+        // A bar on another taskbar: that Shell_SecondaryTrayWnd window. Zero in the host.
+        private readonly IntPtr secondaryTaskbar;
+        // Host only; null in the other bars.
         private readonly NlMonitor monitor;
         private readonly ToolTip toolTip;
         private readonly ContextMenu menu;
+        private readonly MenuItem displayMenu;
         private readonly MenuItem resetPositionItem;
         private readonly MenuItem openSettingsItem;
         private readonly MenuItem openLogFolderItem;
@@ -87,6 +104,10 @@ namespace BandBar
         private uint listedCachePid;
         private bool listedCacheResult;
         private bool userHidden;
+        // Host only: "taskbars" is "others" and other taskbars have bars, so the main taskbar has none to show.
+        private bool excluded;
+        // A bar on another taskbar: the host is closing it (and not, say, a close request from outside).
+        private bool closingFromHost;
         private bool hotkeyRegistered;
         private bool sessionLocked;
         private bool dragArmed;
@@ -100,9 +121,16 @@ namespace BandBar
         private string toolTipText;
         private Color textColor;
 
-        public BarForm(Settings settings)
+        /// <summary>The host: the bar on the main taskbar.</summary>
+        public BarForm(Settings settings) : this(settings, null, IntPtr.Zero)
+        {
+        }
+
+        private BarForm(Settings settings, BarForm host, IntPtr secondaryTaskbar)
         {
             this.settings = settings;
+            this.host = host;
+            this.secondaryTaskbar = secondaryTaskbar;
 
             Text = "BandBar";
             FormBorderStyle = FormBorderStyle.None;
@@ -123,6 +151,12 @@ namespace BandBar
             limiterItem = new MenuItem(Strings.Limiter) { Enabled = false };
             blockerItem = new MenuItem(Strings.Blocker) { Enabled = false };
             prioritiesItem = new MenuItem(Strings.Priorities) { Enabled = false };
+            displayMenu = new MenuItem(Strings.Display, new[]
+            {
+                DisplayItem(Strings.MainDisplay, Settings.TaskbarsMain),
+                DisplayItem(Strings.OtherDisplays, Settings.TaskbarsOthers),
+                DisplayItem(Strings.AllDisplays, Settings.TaskbarsAll),
+            });
             menu = new ContextMenu(new[]
             {
                 zoneMenu,
@@ -132,12 +166,14 @@ namespace BandBar
                 prioritiesItem,
                 new MenuItem(Strings.OpenNetLimiter, (s, e) => Launcher.OpenNetLimiter()),
                 new MenuItem("-"),
+                displayMenu,
                 resetPositionItem,
                 openSettingsItem,
                 openLogFolderItem,
                 new MenuItem(Strings.ReleasesPage, (s, e) => Launcher.OpenReleasesPage()),
                 new MenuItem("-"),
-                new MenuItem(Strings.Exit, (s, e) => Close()),
+                // After the menu has closed: Exit may come from a bar that the host then closes.
+                new MenuItem(Strings.Exit, (s, e) => Host.BeginInvoke((Action)Host.Close)),
             });
             menu.Popup += (s, e) => UpdateMenu();
 
@@ -147,6 +183,7 @@ namespace BandBar
             {
                 repositionTimer.Stop();
                 Reposition();
+                SyncSatellites(); // displays, work areas and taskbars changed: other taskbars may have come or gone
             };
 
             // Runs only for a short while after a shell event: the taskbar may raise itself a little after the
@@ -173,8 +210,22 @@ namespace BandBar
             shellEventProc = OnShellEvent;
             taskbarLocationProc = OnTaskbarLocationChanged;
             textColor = settings.ResolveTextColor();
-            monitor = new NlMonitor(settings.ZoneFilterId, PostReading);
+            monitor = IsHost ? new NlMonitor(settings.ZoneFilterId, PostReading) : null;
         }
+
+        private bool IsHost => host == null;
+
+        private BarForm Host => host ?? this;
+
+        // Host only: itself and the bars on other taskbars.
+        private IEnumerable<BarForm> AllBars => new[] { this }.Concat(satellites);
+
+        // Log prefix, so that a bar on another taskbar can be told from the main one.
+        private string Who => IsHost ? "" : "Bar on another taskbar: ";
+
+        private MenuItem DisplayItem(string text, string mode) =>
+            // After the menu has closed: choosing may close the very bar whose menu this is.
+            new MenuItem(text, (s, e) => Host.BeginInvoke((Action)(() => Host.ChooseTaskbars(mode)))) { RadioCheck = true, Tag = mode };
 
         protected override bool ShowWithoutActivation => true;
 
@@ -198,8 +249,9 @@ namespace BandBar
             Reposition();
             UpdateToolTip();
 
-            if (!started)
+            if (!started && IsHost)
             {
+                // The shared parts, once, in the host only (docs/DESIGN.md §5.3).
                 started = true;
                 SystemEvents.SessionSwitch += OnSessionSwitch;
 
@@ -222,7 +274,12 @@ namespace BandBar
             // Both may hide the bar at once, so only now that the window is shown.
             UpdateAutoHide();
             CheckFullscreenAtStart();
-            UpdateHotkey();
+            ApplyVisibility(); // a bar created while the hotkey has hidden the others starts hidden too
+            if (IsHost)
+            {
+                UpdateHotkey();
+                SyncSatellites();
+            }
         }
 
         protected override void OnHandleDestroyed(EventArgs e)
@@ -231,21 +288,39 @@ namespace BandBar
             base.OnHandleDestroyed(e);
         }
 
+        protected override void OnFormClosing(FormClosingEventArgs e)
+        {
+            // A close request that reaches a bar on another taskbar from outside (for example CloseMainWindow, which
+            // may pick any of our windows) means "exit BandBar": pass it to the host, which closes every bar.
+            if (!IsHost && !closingFromHost && e.CloseReason == CloseReason.UserClosing)
+            {
+                e.Cancel = true;
+                host.BeginInvoke((Action)host.Close);
+            }
+            base.OnFormClosing(e);
+        }
+
         protected override void OnFormClosed(FormClosedEventArgs e)
         {
-            SystemEvents.SessionSwitch -= OnSessionSwitch;
-            if (shellEventHook != IntPtr.Zero)
+            if (IsHost)
             {
-                UnhookWinEvent(shellEventHook);
-                shellEventHook = IntPtr.Zero;
+                foreach (BarForm bar in satellites.ToList())
+                    CloseSatellite(bar);
+                satellites.Clear();
+                SystemEvents.SessionSwitch -= OnSessionSwitch;
+                if (shellEventHook != IntPtr.Zero)
+                {
+                    UnhookWinEvent(shellEventHook);
+                    shellEventHook = IntPtr.Zero;
+                }
+                UnregisterOwnHotkey();
+                StopSettingsWatcher();
+                settingsReloadTimer.Stop();
+                monitor.Dispose();
             }
             RemoveTaskbarLocationHook();
-            UnregisterOwnHotkey();
-            StopSettingsWatcher();
             repositionTimer.Stop();
             zOrderTimer.Stop();
-            settingsReloadTimer.Stop();
-            monitor.Dispose();
             base.OnFormClosed(e);
         }
 
@@ -253,7 +328,7 @@ namespace BandBar
         {
             if (disposing)
             {
-                monitor.Dispose();
+                monitor?.Dispose();
                 StopSettingsWatcher();
                 repositionTimer.Dispose();
                 zOrderTimer.Dispose();
@@ -299,11 +374,11 @@ namespace BandBar
                     OnThemeChanged(); // accent colour changed
                     break;
                 case WM_HOTKEY:
-                    if (m.WParam.ToInt64() == HotkeyId)
+                    if (IsHost && m.WParam.ToInt64() == HotkeyId)
                     {
                         userHidden = !userHidden;
                         Log.Info(userHidden ? "Hidden with the hotkey" : "Shown with the hotkey");
-                        ApplyVisibility();
+                        ApplyVisibilityAll();
                     }
                     return;
             }
@@ -311,7 +386,8 @@ namespace BandBar
             if (taskbarCreatedMessage != 0 && m.Msg == (int)taskbarCreatedMessage)
             {
                 // Explorer restarted: the old AppBar registration, window handles and taskbar thread are gone with it.
-                Log.Info("Taskbar recreated; registering again");
+                // A bar on another taskbar lives on until the host's next check replaces it with one for the new window.
+                Log.Info(Who + "Taskbar recreated; registering again");
                 appBarHandle = IntPtr.Zero;
                 RemoveTaskbarLocationHook();
                 taskbarWindow = IntPtr.Zero;
@@ -431,12 +507,16 @@ namespace BandBar
             Rectangle tb = dragTaskbar.Bounds;
             int fromEnd = dragTaskbar.IsVertical ? tb.Bottom - Bounds.Bottom : tb.Right - Bounds.Right;
             int offsetDip = Math.Max(0, (int)Math.Round(fromEnd * 96.0 / dragTaskbar.Dpi));
-            settings.AnchorOffsetDip = offsetDip;
-            if (SettingsFile.SetNumber(AppPaths.DataDir, AnchorOffsetKey, offsetDip))
-                Log.Info("Position saved: " + offsetDip + " DIP from the end of the taskbar");
+            // The main bar and the bars on other taskbars keep separate places (docs/DESIGN.md §5.3).
+            if (IsHost)
+                settings.AnchorOffsetDip = offsetDip;
+            else
+                settings.OtherAnchorOffsetDip = offsetDip;
+            if (SettingsFile.SetNumber(AppPaths.DataDir, IsHost ? AnchorOffsetKey : OtherAnchorOffsetKey, offsetDip))
+                Log.Info(Who + "Position saved: " + offsetDip + " DIP from the end of the taskbar");
             else
                 Log.Warn("The new position could not be saved; it applies until BandBar exits");
-            Reposition();
+            Host.RepositionAll();
         }
 
         // ---- Menu (docs/DESIGN.md §4) ----
@@ -444,9 +524,11 @@ namespace BandBar
         private void UpdateMenu()
         {
             // The menu shows what is known now; ask for fresh zones and states for the next opening.
-            monitor.RequestDetails();
-            resetPositionItem.Enabled = settings.AnchorOffsetDip.HasValue;
+            Host.monitor.RequestDetails();
+            resetPositionItem.Enabled = (IsHost ? settings.AnchorOffsetDip : settings.OtherAnchorOffsetDip).HasValue;
             openSettingsItem.Enabled = openLogFolderItem.Enabled = AppPaths.DataDir != null;
+            foreach (MenuItem item in displayMenu.MenuItems)
+                item.Checked = (string)item.Tag == settings.Taskbars;
 
             NlDetails details = reading.Status == LinkStatus.Connected ? reading.Details : null;
             foreach (MenuItem old in zoneMenu.MenuItems.Cast<MenuItem>().ToList())
@@ -481,7 +563,7 @@ namespace BandBar
             if (id == settings.ZoneFilterId)
                 return;
             settings.ZoneFilterId = id;
-            monitor.SetZone(id);
+            Host.monitor.SetZone(id);
             if (SettingsFile.SetString(AppPaths.DataDir, "zoneFilterId", id))
                 Log.Info("Zone changed");
             else
@@ -490,12 +572,92 @@ namespace BandBar
 
         private void ResetPosition()
         {
-            settings.AnchorOffsetDip = null;
-            if (SettingsFile.SetNumber(AppPaths.DataDir, AnchorOffsetKey, null))
-                Log.Info("Position reset to the default");
+            if (IsHost)
+                settings.AnchorOffsetDip = null;
+            else
+                settings.OtherAnchorOffsetDip = null;
+            if (SettingsFile.SetNumber(AppPaths.DataDir, IsHost ? AnchorOffsetKey : OtherAnchorOffsetKey, null))
+                Log.Info(Who + "Position reset to the default");
             else
                 Log.Warn("The position reset could not be saved; it applies until BandBar exits");
-            Reposition();
+            Host.RepositionAll();
+        }
+
+        // Host only. Saved like the zone: only this key changes (docs/DESIGN.md §8.1).
+        private void ChooseTaskbars(string mode)
+        {
+            if (IsDisposed || mode == settings.Taskbars)
+                return;
+            settings.Taskbars = mode;
+            if (SettingsFile.SetString(AppPaths.DataDir, TaskbarsKey, mode))
+                Log.Info("Taskbars with a bar: " + mode);
+            else
+                Log.Warn("The display choice could not be saved; it applies until BandBar exits");
+            SyncSatellites();
+        }
+
+        // ---- Bars on other monitors' taskbars (docs/DESIGN.md §5.3); host only ----
+
+        /// <summary>
+        /// Gives every wanted other taskbar a bar and closes the bars whose taskbar is gone or no longer wanted. Cheap: a
+        /// few FindWindowEx calls. Runs after display and taskbar changes and with the once-a-second reading.
+        /// </summary>
+        private void SyncSatellites()
+        {
+            if (!IsHost || !ready || IsDisposed)
+                return;
+
+            List<IntPtr> wanted = settings.Taskbars == Settings.TaskbarsMain ? new List<IntPtr>() : Taskbar.FindSecondaryTaskbars();
+            int before = satellites.Count;
+            bool changed = false;
+            foreach (BarForm bar in satellites.ToList())
+            {
+                if (wanted.Contains(bar.secondaryTaskbar))
+                    continue;
+                satellites.Remove(bar);
+                CloseSatellite(bar);
+                changed = true;
+            }
+            foreach (IntPtr taskbar in wanted)
+            {
+                if (satellites.Any(bar => bar.secondaryTaskbar == taskbar))
+                    continue;
+                var bar = new BarForm(settings, this, taskbar);
+                satellites.Add(bar);
+                bar.Show();
+                bar.ApplyReading(reading);
+                changed = true;
+            }
+            if (changed)
+                Log.Info("Bars on other taskbars: " + satellites.Count + " (was " + before + ")");
+
+            // "others" with no other taskbar still shows the main bar: the bar never disappears altogether.
+            bool exclude = settings.Taskbars == Settings.TaskbarsOthers && satellites.Count > 0;
+            if (exclude != excluded)
+            {
+                excluded = exclude;
+                Log.Info(exclude ? "Main taskbar left without a bar" : "Main taskbar has a bar again");
+                ApplyVisibility();
+            }
+            UpdatePaused();
+        }
+
+        private static void CloseSatellite(BarForm bar)
+        {
+            bar.closingFromHost = true;
+            bar.Close();
+        }
+
+        private void RepositionAll()
+        {
+            foreach (BarForm bar in AllBars.ToList())
+                bar.Reposition();
+        }
+
+        private void ApplyVisibilityAll()
+        {
+            foreach (BarForm bar in AllBars.ToList())
+                bar.ApplyVisibility();
         }
 
         // ---- Shell notifications ----
@@ -552,7 +714,7 @@ namespace BandBar
             {
                 // Another monitor's game: stay visible, but watch foreground changes in case one comes here.
                 fullscreenElsewhere = true;
-                Log.Info("Full-screen application on another monitor; staying visible");
+                Log.Info(Who + "Full-screen application on another monitor; staying visible");
                 opened = false;
             }
             SetFullscreen(opened);
@@ -566,7 +728,7 @@ namespace BandBar
             IntPtr foreground = GetForegroundWindow();
             if (foreground == IntPtr.Zero || !CoversItsMonitor(foreground) || !FullscreenOnOurMonitor(foreground))
                 return;
-            Log.Info("A full-screen application is already in front");
+            Log.Info(Who + "A full-screen application is already in front");
             fullscreenAssumed = true;
             SetFullscreen(true);
         }
@@ -582,6 +744,11 @@ namespace BandBar
             return MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST) == MonitorFromWindow(Handle, MONITOR_DEFAULTTONEAREST);
         }
 
+        // A listed program hides only the bars on its own monitor (docs/DESIGN.md §6.1).
+        private bool OnOurMonitor(IntPtr window) =>
+            window != IntPtr.Zero
+            && MonitorFromWindow(window, MONITOR_DEFAULTTONEAREST) == MonitorFromWindow(Handle, MONITOR_DEFAULTTONEAREST);
+
         private static bool ShellReportsFullscreen() =>
             SHQueryUserNotificationState(out int state) == 0
             && (state == QUNS_BUSY || state == QUNS_RUNNING_D3D_FULL_SCREEN);
@@ -591,12 +758,12 @@ namespace BandBar
         {
             if (settings.ListedApps.Length > 0)
             {
-                bool listed = IsListedApp(window);
+                bool listed = IsListedApp(window) && OnOurMonitor(window);
                 if (listed != listedAppInFront)
                 {
                     listedAppInFront = listed;
                     // The program's name is not logged: the log may be attached to a public issue.
-                    Log.Info(listed ? "A program from fullscreenExeList is in front; hiding" : "No program from fullscreenExeList is in front");
+                    Log.Info(Who + (listed ? "A program from fullscreenExeList is in front; hiding" : "No program from fullscreenExeList is in front"));
                     ApplyVisibility();
                 }
             }
@@ -640,7 +807,7 @@ namespace BandBar
                 return;
 
             fullscreen = value;
-            Log.Info(value ? "Full-screen application opened; hiding" : "Full-screen application closed");
+            Log.Info(Who + (value ? "Full-screen application opened; hiding" : "Full-screen application closed"));
             ApplyVisibility();
         }
 
@@ -664,9 +831,9 @@ namespace BandBar
 
             if (!hotkeyRegistered && userHidden)
             {
-                // Without a hotkey there would be no way to bring the bar back.
+                // Without a hotkey there would be no way to bring the bars back.
                 userHidden = false;
-                ApplyVisibility();
+                ApplyVisibilityAll();
             }
         }
 
@@ -680,7 +847,7 @@ namespace BandBar
 
         private void ApplyVisibility()
         {
-            bool show = !fullscreen && !hiddenWithTaskbar && !listedAppInFront && !userHidden;
+            bool show = !fullscreen && !hiddenWithTaskbar && !listedAppInFront && !Host.userHidden && !excluded;
             if (show != shown)
             {
                 shown = show;
@@ -695,6 +862,7 @@ namespace BandBar
                 }
                 else
                 {
+                    zOrderReason = "the bar was shown again"; // for the debug log of the check inside Reposition
                     Reposition();
                     if (!shown)
                         return; // the taskbar check inside Reposition hid the bar again; stay hidden
@@ -715,7 +883,8 @@ namespace BandBar
             if (value != autoHide)
             {
                 autoHide = value;
-                Log.Info(value ? "The taskbar auto-hides" : "The taskbar no longer auto-hides");
+                if (IsHost) // one setting for every taskbar: log it once
+                    Log.Info(value ? "The taskbar auto-hides" : "The taskbar no longer auto-hides");
             }
 
             if (autoHide)
@@ -753,7 +922,7 @@ namespace BandBar
         {
             try
             {
-                if (IsDisposed || hwnd == IntPtr.Zero || hwnd != taskbarWindow || idObject != OBJID_WINDOW)
+                if (IsDisposed || hwnd == IntPtr.Zero || hwnd != GetTaskbarWindow() || idObject != OBJID_WINDOW)
                     return; // other windows of the taskbar's thread
                 UpdateTaskbarShown();
                 RaiseIfCoveredByTaskbar();
@@ -781,7 +950,7 @@ namespace BandBar
             if (hide == hiddenWithTaskbar)
                 return;
             hiddenWithTaskbar = hide;
-            Log.Debug(hide ? "Taskbar slid out; hiding" : "Taskbar slid in; showing");
+            Log.Debug(Who + (hide ? "Taskbar slid out; hiding" : "Taskbar slid in; showing"));
             ApplyVisibility();
         }
 
@@ -789,37 +958,48 @@ namespace BandBar
 
         // Foreground, menu and mouse-capture events from any process, delivered out of context through our message
         // loop. Pressing a taskbar button raises a capture event at once; the foreground event covers the rest.
+        // The host's one hook; every bar judges the event for its own taskbar (docs/DESIGN.md §5.3).
         private void OnShellEvent(IntPtr hook, uint eventType, IntPtr hwnd, int idObject, int idChild,
                                   uint eventThread, uint eventTime)
         {
-            try
+            if (IsDisposed)
+                return;
+            foreach (BarForm bar in AllBars.ToList())
             {
-                if (IsDisposed)
-                    return;
-                if (eventType == EVENT_SYSTEM_FOREGROUND && ready)
-                    OnForegroundChanged(hwnd); // also while hidden: this is how the bar comes back
-                if (!shown)
-                    return;
-                if (eventType == EVENT_SYSTEM_FOREGROUND)
+                try
                 {
-                    // A full-screen app is coming forward; ABN_FULLSCREENAPP hides the bar instead. The desktop also
-                    // covers the monitor, but clicking it (for example to close Start) is when the taskbar raises itself.
-                    if (CoversItsMonitor(hwnd) && hwnd != GetShellWindow())
-                        return;
+                    bar.HandleShellEvent(eventType, hwnd);
                 }
-                else if (!BelongsToTaskbar(hwnd))
+                catch (Exception ex)
                 {
-                    return; // menu and mouse-capture events matter only when they happen on the taskbar
+                    // Called from native code: never let an exception escape.
+                    Log.Debug("Shell event handler failed", ex);
                 }
-                WatchZOrder(eventType == EVENT_SYSTEM_FOREGROUND ? "a foreground change"
-                          : eventType <= EVENT_SYSTEM_MENUPOPUPEND ? "a taskbar menu event" : "a taskbar mouse capture");
-                RaiseIfCoveredByTaskbar();
             }
-            catch (Exception ex)
+        }
+
+        private void HandleShellEvent(uint eventType, IntPtr hwnd)
+        {
+            if (IsDisposed)
+                return;
+            if (eventType == EVENT_SYSTEM_FOREGROUND && ready)
+                OnForegroundChanged(hwnd); // also while hidden: this is how the bar comes back
+            if (!shown)
+                return;
+            if (eventType == EVENT_SYSTEM_FOREGROUND)
             {
-                // Called from native code: never let an exception escape.
-                Log.Debug("Shell event handler failed", ex);
+                // A full-screen app is coming forward; ABN_FULLSCREENAPP hides the bar instead. The desktop also
+                // covers the monitor, but clicking it (for example to close Start) is when the taskbar raises itself.
+                if (CoversItsMonitor(hwnd) && hwnd != GetShellWindow())
+                    return;
             }
+            else if (!BelongsToTaskbar(hwnd))
+            {
+                return; // menu and mouse-capture events matter only when they happen on this bar's taskbar
+            }
+            WatchZOrder(eventType == EVENT_SYSTEM_FOREGROUND ? "a foreground change"
+                      : eventType <= EVENT_SYSTEM_MENUPOPUPEND ? "a taskbar menu event" : "a taskbar mouse capture");
+            RaiseIfCoveredByTaskbar();
         }
 
         private void WatchZOrder(string reason)
@@ -838,10 +1018,10 @@ namespace BandBar
             if (!shown || !IsHandleCreated || IsDisposed || !IsCoveredByTaskbar())
                 return;
             if (foundBy != null && Log.IsDebugEnabled)
-                Log.Debug("Taskbar above the bar, found by " + foundBy + ", " + zOrderClock.ElapsedMilliseconds
+                Log.Debug(Who + "Taskbar above the bar, found by " + foundBy + ", " + zOrderClock.ElapsedMilliseconds
                           + " ms after " + zOrderReason);
             // Directly above the taskbar rather than at the very top, so Start, jump lists and tooltips stay above us.
-            IntPtr above = GetWindow(taskbarWindow, GW_HWNDPREV);
+            IntPtr above = GetWindow(GetTaskbarWindow(), GW_HWNDPREV);
             SetWindowPos(Handle, above == IntPtr.Zero ? HWND_TOPMOST : above, 0, 0, 0, 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
 
@@ -853,7 +1033,7 @@ namespace BandBar
                 if (state != zOrderLogged)
                 {
                     zOrderLogged = state;
-                    Log.Debug("Taskbar above the bar " + zOrderClock.ElapsedMilliseconds + " ms after " + zOrderReason
+                    Log.Debug(Who + "Taskbar above the bar " + zOrderClock.ElapsedMilliseconds + " ms after " + zOrderReason
                               + (stillCovered ? "; still above after moving up (the taskbar is in a higher band)" : "; moved up"));
                 }
             }
@@ -867,8 +1047,11 @@ namespace BandBar
                           + " ms after " + zOrderReason);
         }
 
+        // This bar's taskbar: the main one (Shell_TrayWnd) for the host, its Shell_SecondaryTrayWnd otherwise.
         private IntPtr GetTaskbarWindow()
         {
+            if (!IsHost)
+                return secondaryTaskbar;
             if (taskbarWindow == IntPtr.Zero)
                 taskbarWindow = FindWindow("Shell_TrayWnd", null);
             return taskbarWindow;
@@ -883,7 +1066,8 @@ namespace BandBar
         // Reads the z-order only: is the taskbar somewhere above the bar?
         private bool IsCoveredByTaskbar()
         {
-            if (GetTaskbarWindow() == IntPtr.Zero)
+            IntPtr taskbar = GetTaskbarWindow();
+            if (taskbar == IntPtr.Zero)
                 return false;
 
             IntPtr window = Handle;
@@ -892,7 +1076,7 @@ namespace BandBar
                 window = GetWindow(window, GW_HWNDPREV);
                 if (window == IntPtr.Zero)
                     return false;
-                if (window == taskbarWindow)
+                if (window == taskbar)
                     return true;
             }
             return false;
@@ -930,7 +1114,16 @@ namespace BandBar
             }
         }
 
-        private void UpdatePaused() => monitor.SetPaused(!shown || sessionLocked);
+        // One connection for every bar: reading stops when none of them is visible.
+        private void UpdatePaused()
+        {
+            if (!IsHost)
+            {
+                host.UpdatePaused();
+                return;
+            }
+            monitor.SetPaused(!AllBars.Any(bar => bar.shown) || sessionLocked);
+        }
 
         // ---- Placement (docs/DESIGN.md §5) ----
 
@@ -945,7 +1138,9 @@ namespace BandBar
             if (IsDisposed || !IsHandleCreated || dragging)
                 return;
 
-            if (Taskbar.TryGet(Handle, out TaskbarInfo taskbar))
+            TaskbarInfo taskbar;
+            bool found = IsHost ? Taskbar.TryGet(Handle, out taskbar) : Taskbar.TryGetSecondary(secondaryTaskbar, Handle, out taskbar);
+            if (found)
             {
                 bool changed = !currentTaskbar.HasValue || !currentTaskbar.Value.Equals(taskbar);
                 currentTaskbar = taskbar;
@@ -954,10 +1149,11 @@ namespace BandBar
                 else if (changed && autoHide)
                     UpdateTaskbarShown(); // location events may have been judged against the old rectangle
             }
-            else if (placed)
+            else if (placed || !IsHost)
             {
-                // Explorer is restarting: stay where we are and wait for TaskbarCreated.
-                Log.Info("Taskbar position unavailable; keeping the current position");
+                // Explorer is restarting, or this bar's other taskbar is gone (the host closes the bar on its next
+                // check): stay where we are.
+                Log.Info(Who + "Taskbar position unavailable; keeping the current position");
                 notificationArea = IntPtr.Zero;
                 return;
             }
@@ -1000,7 +1196,7 @@ namespace BandBar
             if (Bounds != target)
             {
                 Bounds = target;
-                Log.Debug("Positioned on the " + taskbar.Edge + " taskbar " + tb + " at dpi " + taskbar.Dpi
+                Log.Debug(Who + "Positioned on the " + taskbar.Edge + " taskbar " + tb + " at dpi " + taskbar.Dpi
                           + (layout.Stacked ? " (stacked)" : "") + ": target " + target + ", actual " + Bounds);
             }
             placed |= currentTaskbar.HasValue;
@@ -1010,11 +1206,14 @@ namespace BandBar
 
         /// <summary>
         /// Where the bar ends along the taskbar (right edge on a horizontal taskbar, bottom on a vertical one): just
-        /// before the notification area by default, or the saved offset from the taskbar's end.
+        /// before the notification area by default, or the saved offset from the taskbar's end. Other taskbars have
+        /// no notification-area window: there the default is a fixed distance (docs/DESIGN.md §5.3).
         /// </summary>
         private int FindAnchorEnd(TaskbarInfo taskbar, BarLayout metrics)
         {
             Rectangle tb = taskbar.Bounds;
+            if (!IsHost)
+                return (taskbar.IsVertical ? tb.Bottom : tb.Right) - metrics.Scale(settings.OtherAnchorOffsetDip ?? FallbackOffsetDip);
             if (settings.AnchorOffsetDip.HasValue)
                 return (taskbar.IsVertical ? tb.Bottom : tb.Right) - metrics.Scale(settings.AnchorOffsetDip.Value);
 
@@ -1054,7 +1253,7 @@ namespace BandBar
         // One GetWindowRect, no extra timer.
         private void FollowNotificationArea()
         {
-            if (settings.AnchorOffsetDip.HasValue || notificationArea == IntPtr.Zero || !shown || dragging)
+            if (!IsHost || settings.AnchorOffsetDip.HasValue || notificationArea == IntPtr.Zero || !shown || dragging)
                 return;
             if (!Taskbar.TryGetWindowBounds(notificationArea, out Rectangle tray) || tray != lastNotificationArea)
                 ScheduleReposition();
@@ -1130,9 +1329,12 @@ namespace BandBar
         {
             Settings old = settings;
             settings = fresh;
-            Log.SetLevel(fresh.LogLevel);
-            if (fresh.ZoneFilterId != old.ZoneFilterId)
-                monitor.SetZone(fresh.ZoneFilterId);
+            if (IsHost)
+            {
+                Log.SetLevel(fresh.LogLevel);
+                if (fresh.ZoneFilterId != old.ZoneFilterId)
+                    monitor.SetZone(fresh.ZoneFilterId);
+            }
             textColor = fresh.ResolveTextColor();
 
             // Units and decimals decide the bar's width: measure again.
@@ -1147,15 +1349,22 @@ namespace BandBar
             listedCachePid = 0;
             if (listedAppInFront || fresh.ListedApps.Length > 0)
             {
-                listedAppInFront = fresh.ListedApps.Length > 0 && IsListedApp(GetForegroundWindow());
+                IntPtr foreground = GetForegroundWindow();
+                listedAppInFront = fresh.ListedApps.Length > 0 && IsListedApp(foreground) && OnOurMonitor(foreground);
                 ApplyVisibility();
             }
-            if (fresh.Hotkey != old.Hotkey)
+            if (IsHost && fresh.Hotkey != old.Hotkey)
                 UpdateHotkey();
 
             UpdateTaskbarShown();
             Reposition();
-            Log.Info("Settings applied");
+            if (IsHost)
+            {
+                foreach (BarForm bar in satellites.ToList())
+                    bar.ApplySettings(fresh);
+                SyncSatellites(); // "taskbars" may have changed
+                Log.Info("Settings applied");
+            }
         }
 
         // ---- Drawing and readings ----
@@ -1232,7 +1441,7 @@ namespace BandBar
             (SpeedText up, SpeedText down) = TextsFor(r);
             bool changed = !up.Equals(upText) || !down.Equals(downText) || r.Status != reading.Status
                            || (r.BlockerRequests > 0) != (reading.BlockerRequests > 0);
-            if (r.BlockerRequests > 0 && reading.BlockerRequests == 0)
+            if (IsHost && r.BlockerRequests > 0 && reading.BlockerRequests == 0)
                 Log.Info("The Blocker has connections waiting for approval");
             reading = r;
             upText = up;
@@ -1245,6 +1454,15 @@ namespace BandBar
             // arrives once a second anyway, so this adds a few GetWindow calls and no timer.
             if (!dragging)
                 RaiseIfCoveredByTaskbar("the once-a-second check");
+
+            if (IsHost)
+            {
+                // Fallback for other taskbars that came or went without a notification we watch (docs/DESIGN.md §5.3).
+                if (settings.Taskbars != Settings.TaskbarsMain)
+                    SyncSatellites();
+                foreach (BarForm bar in satellites.ToList())
+                    bar.ApplyReading(r);
+            }
         }
 
         private void UpdateToolTip()

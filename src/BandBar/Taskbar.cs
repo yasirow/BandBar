@@ -38,7 +38,7 @@ namespace BandBar
         public override int GetHashCode() => Bounds.GetHashCode() ^ ((int)Edge << 24) ^ (int)Dpi;
     }
 
-    /// <summary>Read-only queries about the primary taskbar (docs/DESIGN.md §5).</summary>
+    /// <summary>Read-only queries about the taskbars (docs/DESIGN.md §5).</summary>
     internal static class Taskbar
     {
         public static bool TryGet(IntPtr hwnd, out TaskbarInfo info)
@@ -62,6 +62,44 @@ namespace BandBar
                 edge = InferEdge(rc);
             }
 
+            info = Describe(rc, edge, IsAutoHide(hwnd));
+            return true;
+        }
+
+        /// <summary>
+        /// Another monitor's taskbar (a <c>Shell_SecondaryTrayWnd</c> window, docs/DESIGN.md §5.3): its rectangle, the
+        /// edge inferred from its monitor, and that monitor's DPI. Read only.
+        /// </summary>
+        public static bool TryGetSecondary(IntPtr taskbarWindow, IntPtr hwnd, out TaskbarInfo info)
+        {
+            info = default;
+            if (taskbarWindow == IntPtr.Zero || !GetWindowRect(taskbarWindow, out RECT rc) || !IsUsable(rc))
+                return false;
+            info = Describe(rc, InferEdge(rc), IsAutoHide(hwnd));
+            return true;
+        }
+
+        /// <summary>
+        /// The other monitors' taskbars, shown by Windows only when "Show my taskbar on all displays" is on. Top-level
+        /// windows found by class name, read only; at most 16.
+        /// </summary>
+        public static System.Collections.Generic.List<IntPtr> FindSecondaryTaskbars()
+        {
+            var found = new System.Collections.Generic.List<IntPtr>();
+            IntPtr window = IntPtr.Zero;
+            while (found.Count < 16)
+            {
+                window = FindWindowEx(IntPtr.Zero, window, "Shell_SecondaryTrayWnd", null);
+                if (window == IntPtr.Zero)
+                    break;
+                if (GetWindowRect(window, out RECT rc) && IsUsable(rc))
+                    found.Add(window);
+            }
+            return found;
+        }
+
+        private static TaskbarInfo Describe(RECT rc, TaskbarEdge edge, bool autoHide)
+        {
             IntPtr monitor = MonitorFromRect(ref rc, MONITOR_DEFAULTTONEAREST);
             uint dpi = 96;
             if (monitor != IntPtr.Zero && GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, out uint dpiX, out _) == 0 && dpiX > 0)
@@ -70,12 +108,10 @@ namespace BandBar
             // An auto-hiding taskbar is placed where it appears, not where it is while hidden. So is a taskbar that is
             // still partly off its monitor (auto-hide was just turned off while it was hidden): a correct place for the
             // bar is never off-screen. A taskbar fully on its monitor is left as it is.
-            bool autoHide = IsAutoHide(hwnd);
             if (TryGetMonitorBounds(monitor, out RECT m) && (autoHide || !IsInside(rc, m)))
                 rc = SnapToEdge(rc, edge, m);
 
-            info = new TaskbarInfo(Rectangle.FromLTRB(rc.Left, rc.Top, rc.Right, rc.Bottom), edge, dpi, autoHide);
-            return true;
+            return new TaskbarInfo(Rectangle.FromLTRB(rc.Left, rc.Top, rc.Right, rc.Bottom), edge, dpi, autoHide);
         }
 
         /// <summary>The taskbar's auto-hide setting (ABM_GETSTATE), read only.</summary>

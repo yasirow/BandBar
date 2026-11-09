@@ -199,6 +199,8 @@ namespace BandBar
                     Null("background")),
                 Number("opacity", d.Opacity.ToString("R", CultureInfo.InvariantCulture)),
                 Null("anchorOffsetDip"),
+                String("taskbars", d.Taskbars),
+                Null("otherAnchorOffsetDip"),
                 Boolean("hideOnFullscreen", d.HideOnFullscreen),
                 new XElement("fullscreenExeList", new XAttribute("type", "array")),
                 Boolean("followAutoHideTaskbar", d.FollowAutoHideTaskbar),

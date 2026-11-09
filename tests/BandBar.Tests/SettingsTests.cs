@@ -23,6 +23,8 @@ namespace BandBar.Tests
                 Assert.AreEqual(1, s.Decimals);
                 Assert.AreEqual("auto", s.Theme);
                 Assert.IsNull(s.AnchorOffsetDip);
+                Assert.AreEqual("main", s.Taskbars);
+                Assert.IsNull(s.OtherAnchorOffsetDip);
                 Assert.IsTrue(s.HideOnFullscreen);
                 Assert.IsTrue(s.FollowAutoHideTaskbar);
                 Assert.AreEqual(0, s.ListedApps.Length);
@@ -57,13 +59,16 @@ namespace BandBar.Tests
             using (var folder = new TempFolder())
             {
                 folder.WriteSettings("{ \"unitBase\": 999, \"decimals\": 9, \"opacity\": 5, \"theme\": \" DARK \", "
-                                     + "\"anchorOffsetDip\": -5, \"colors\": { \"download\": \"green\" } }");
+                                     + "\"anchorOffsetDip\": -5, \"otherAnchorOffsetDip\": 99999, \"taskbars\": \"sideways\", "
+                                     + "\"colors\": { \"download\": \"green\" } }");
                 Settings s = Load(folder);
                 Assert.AreEqual(1024, s.UnitBase);
                 Assert.AreEqual(3, s.Decimals);
                 Assert.AreEqual(1.0, s.Opacity);
                 Assert.AreEqual("dark", s.Theme);
                 Assert.AreEqual(0, s.AnchorOffsetDip);
+                Assert.AreEqual(10000, s.OtherAnchorOffsetDip);
+                Assert.AreEqual("main", s.Taskbars);
                 Assert.AreEqual(Color.FromArgb(0x2E, 0xCC, 0x71), s.DownloadColor);
             }
         }
@@ -76,8 +81,11 @@ namespace BandBar.Tests
                 folder.WriteSettings("{ \"zoneFilterId\": \"zone-1\", \"unitBase\": 1000, \"anchorOffsetDip\": 300, "
                                      + "\"hideOnFullscreen\": false, \"followAutoHideTaskbar\": false, \"logLevel\": \"debug\", "
                                      + "\"opacity\": 0.5, \"colors\": { \"text\": \"#101010\", \"background\": \"#000000\" }, "
-                                     + "\"fullscreenExeList\": [\"Game.exe\", \"other\"], \"hotkey\": \" Ctrl+Alt+B \" }");
+                                     + "\"fullscreenExeList\": [\"Game.exe\", \"other\"], \"hotkey\": \" Ctrl+Alt+B \", "
+                                     + "\"taskbars\": \" Others \", \"otherAnchorOffsetDip\": 150 }");
                 Settings s = Load(folder);
+                Assert.AreEqual("others", s.Taskbars);
+                Assert.AreEqual(150, s.OtherAnchorOffsetDip);
                 CollectionAssert.AreEqual(new[] { "game", "other" }, s.ListedApps);
                 Assert.AreEqual("Ctrl+Alt+B", s.Hotkey);
                 Assert.AreEqual("zone-1", s.ZoneFilterId);
@@ -88,6 +96,21 @@ namespace BandBar.Tests
                 Assert.AreEqual("debug", s.LogLevel);
                 Assert.AreEqual(Color.FromArgb(0x10, 0x10, 0x10), s.TextColorOverride);
                 Assert.AreEqual(Color.FromArgb(128, 0, 0, 0), s.BackgroundColor);
+            }
+        }
+
+        [DataTestMethod]
+        [DataRow("main", "main")]
+        [DataRow("OTHERS", "others")]
+        [DataRow(" all ", "all")]
+        [DataRow("", "main")]
+        [DataRow("primary", "main")]
+        public void TaskbarsKnowsThreeValues(string value, string expected)
+        {
+            using (var folder = new TempFolder())
+            {
+                folder.WriteSettings("{ \"taskbars\": \"" + value + "\" }");
+                Assert.AreEqual(expected, Load(folder).Taskbars);
             }
         }
 

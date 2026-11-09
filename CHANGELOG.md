@@ -8,6 +8,29 @@ milestone is a minor release (`0.x.0`) and fixes in between are patch releases (
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-11-09
+
+### Added
+- **Bars on other monitors' taskbars:** right-click → *Display* → *Main display* (default), *Other displays* or
+  *All displays*, saved as the new setting `taskbars` (`"main"`, `"others"`, `"all"`). *Other displays* keeps the
+  speed in view next to a full-screen game on the main monitor; when there is no other taskbar, the main one keeps
+  its bar. Windows has to show the taskbar on all displays.
+- Bars appear and disappear by themselves when monitors are connected or removed, or when Windows' "Show my taskbar
+  on all displays" is switched.
+- Each bar hides for a full-screen application on its own monitor, follows its own auto-hiding taskbar and stays
+  above its own taskbar. The hotkey hides and shows all of them.
+- Bars on other taskbars sit 220 DIP from the end of their taskbar (Windows does not reveal where the clock is
+  there). Dragging one saves the new setting `otherAnchorOffsetDip`, shared by all other taskbars; *Reset position*
+  on such a bar resets it. The main bar keeps `anchorOffsetDip`.
+
+### Changed
+- `fullscreenExeList`: a listed program hides only the bars on its own monitor (with one monitor nothing changes).
+- A close request sent from outside to any of BandBar's windows now exits BandBar as a whole.
+
+### Security
+- Nothing new is called besides `FindWindowEx` for the other taskbars' windows (read only, docs/DESIGN.md §5.3).
+  There is still a single NetLimiter connection and a single WinEvent range for all bars.
+
 ## [0.5.0] - 2026-11-09
 
 ### Added
@@ -230,7 +253,8 @@ Initial preview.
 - An auto-hiding taskbar is not supported yet.
 - If the app is started while a full-screen game is already running, it does not hide until that game closes.
 
-[Unreleased]: https://github.com/yasirow/BandBar/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/yasirow/BandBar/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/yasirow/BandBar/releases/tag/v0.6.0
 [0.5.0]: https://github.com/yasirow/BandBar/releases/tag/v0.5.0
 [0.4.0]: https://github.com/yasirow/BandBar/releases/tag/v0.4.0
 [0.3.0]: https://github.com/yasirow/BandBar/releases/tag/v0.3.0

@@ -15,6 +15,10 @@ namespace BandBar
         public static string DragHint => Tr ? "Taşımak için sürükleyin, menü için sağ tıklayın" : "Drag to move, right-click for the menu";
         public static string OpenNetLimiter => Tr ? "NetLimiter'ı aç" : "Open NetLimiter";
         public static string ReleasesPage => Tr ? "Sürüm sayfası (GitHub)" : "Releases page (GitHub)";
+        public static string Display => Tr ? "Ekran" : "Display";
+        public static string MainDisplay => Tr ? "Ana ekran" : "Main display";
+        public static string OtherDisplays => Tr ? "Diğer ekranlar" : "Other displays";
+        public static string AllDisplays => Tr ? "Tüm ekranlar" : "All displays";
         public static string NotConnected => Tr ? "(NetLimiter'a bağlı değil)" : "(not connected to NetLimiter)";
 
         // NetLimiter's own feature names, as in its interface (like "Zone").
