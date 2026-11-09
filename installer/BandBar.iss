@@ -92,9 +92,11 @@ Filename: "{app}\{#AppExe}"; Description: "{cm:LaunchProgram,{#AppName}}"; Flags
 [UninstallDelete]
 ; Only the files BandBar itself writes, by name (docs/DESIGN.md §8), then the folders if they are empty.
 Type: files; Name: "{app}\settings.json"
+Type: files; Name: "{app}\settings.json.tmp"
 Type: files; Name: "{app}\bandbar.log"
 Type: files; Name: "{app}\bandbar.log.1"
 Type: files; Name: "{localappdata}\BandBar\settings.json"
+Type: files; Name: "{localappdata}\BandBar\settings.json.tmp"
 Type: files; Name: "{localappdata}\BandBar\bandbar.log"
 Type: files; Name: "{localappdata}\BandBar\bandbar.log.1"
 Type: dirifempty; Name: "{localappdata}\BandBar"

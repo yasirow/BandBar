@@ -17,13 +17,14 @@ namespace BandBar.Api
         private const int ReadTimeoutMs = 2000;
         private static readonly int[] RetryDelaysMs = { 2000, 4000, 8000, 16000, 30000 };
 
-        private readonly string zoneFilterId;
         private readonly Action<Reading> publish;
         private readonly Thread thread;
         private readonly ManualResetEvent stopRequested = new ManualResetEvent(false);
         private readonly AutoResetEvent wake = new AutoResetEvent(false);
         private readonly WaitHandle[] waitHandles;
 
+        private volatile string zoneFilterId;
+        private volatile bool zoneChanged;
         private volatile bool paused;
         private volatile bool disconnected;
         private INlSession session;
@@ -42,6 +43,14 @@ namespace BandBar.Api
         }
 
         public void Start() => thread.Start();
+
+        /// <summary>Shows another zone from the next reading on (reconnects once); null is the Internet zone.</summary>
+        public void SetZone(string filterId)
+        {
+            zoneFilterId = filterId;
+            zoneChanged = true;
+            wake.Set();
+        }
 
         /// <summary>While paused nothing is read; the idle connection is kept.</summary>
         public void SetPaused(bool value)
@@ -68,6 +77,15 @@ namespace BandBar.Api
                     {
                         WaitHandle.WaitAny(waitHandles);
                         continue;
+                    }
+
+                    if (zoneChanged)
+                    {
+                        // The zone is chosen when the session opens: start a new one.
+                        zoneChanged = false;
+                        zoneMissingLogged = false;
+                        CloseSession();
+                        failedAttempts = 0;
                     }
 
                     if (session == null && !TryOpen())

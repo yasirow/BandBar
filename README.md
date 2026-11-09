@@ -57,7 +57,9 @@ separate window that never modifies the taskbar or any other program.
 - **Compact two-line display** — red ⬆ upload above green ⬇ download, transparent background,
   B/s → KB/s → MB/s with one decimal. The text turns dark on a light taskbar and back when you switch themes.
 - **Follows the taskbar** — sits just before the notification area on a top, bottom, left or right taskbar, and
-  moves when the taskbar, the tray icons, the resolution or the scaling change, or when Explorer restarts.
+  moves when the taskbar, the tray icons, the resolution or the scaling change, or when Explorer restarts. Drag it
+  anywhere along the taskbar and it remembers the place. On a narrow left or right taskbar it stacks the number
+  and the unit; with an auto-hiding taskbar it hides and shows together with it.
 - **Gets out of the way of games** — hides completely, and stops reading, while a full-screen or borderless
   windowed application is in front.
 - **Light** — one ~100 KB executable, no runtime to install; about 0.02 % CPU while idle.
@@ -119,7 +121,10 @@ For the portable version, exit the bar and delete its folder.
 ## Using it
 
 - **Hover** the bar for details: version, zone, connection status and NetLimiter version.
-- **Right-click** the bar for the menu (currently: Exit).
+- **Drag** the bar with the left mouse button to move it along the taskbar. It stays where you drop it, also after
+  a restart.
+- **Right-click** the bar for the menu: *Reset position* (back to its place before the notification area), *Open
+  settings file*, *Open log folder* and *Exit*.
 - The bar shows NetLimiter's **Internet** zone by default.
 
 | The bar shows | Meaning |
@@ -133,15 +138,20 @@ For the portable version, exit the bar and delete its folder.
 
 ### Settings
 
-Optional: create `settings.json` next to `BandBar.exe` and restart the bar. For example, to show two decimals,
-use units of 1000 and a different green:
+Optional. Right-click the bar and choose **Open settings file**: it opens `settings.json` (created with every
+setting at its default the first time) in your editor. Save the file and the bar applies the change at once, no
+restart needed. For example, to show two decimals, use units of 1000 and a different green:
 
 ```json
 { "decimals": 2, "unitBase": 1000, "colors": { "download": "#00C853" } }
 ```
 
+If the file has a mistake, the bar keeps its current settings until you fix it (the log says why). BandBar itself
+only ever changes the position (`anchorOffsetDip`) when you drag the bar, and leaves the rest of the file as it is.
+
 The text colour follows your Windows taskbar (light or dark). If a taskbar tool paints its own colours and the text
-is hard to read, set `"theme": "dark"` (white text) or `"theme": "light"` (dark text).
+is hard to read, set `"theme": "dark"` (white text) or `"theme": "light"` (dark text). With an auto-hiding taskbar,
+`"followAutoHideTaskbar": false` keeps the bar visible at the screen edge instead of hiding it with the taskbar.
 
 All keys are listed in [docs/DESIGN.md](docs/DESIGN.md#81-settingsjson).
 
@@ -174,11 +184,13 @@ install the SDK inside the repository folder, how to create the release packages
 
 | Version | Planned |
 |---|---|
-| 0.2.0 | Drag the bar to any place on the taskbar and remember it; support auto-hiding taskbars |
 | 0.3.0 | Multi-monitor full-screen detection; detect a game that is already full screen at start-up; optional game list and show/hide hotkey |
 | 0.4.0 | Menu: choose the zone, open NetLimiter, switch Limiter / Blocker / Priorities (within NetLimiter's own permissions), Blocker request alerts, open the Releases page |
-| 0.5.0 | Automatic light/dark text, taskbars on secondary monitors, code signing |
+| 0.5.0 | Taskbars on secondary monitors, light/dark theme refinements, code signing, winget |
 | 1.0.0 | Stable release |
+
+Done: 0.2.0 — drag and remember the position, stacked layout for vertical taskbars, auto-hiding taskbars, settings
+applied without a restart. See [CHANGELOG.md](CHANGELOG.md) for every release.
 
 ## Contributing
 

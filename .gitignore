@@ -1,7 +1,8 @@
-# Build output and release packages
+# Build output, test results and release packages
 bin/
 obj/
 artifacts/
+TestResults/
 
 # Repository-local SDK, SDK state and NuGet caches (see build.ps1)
 .dotnet/
@@ -9,8 +10,9 @@ artifacts/
 .packages/
 .nuget/
 
-# Local working notes; never published
+# Local working notes and the local project guide; never published
 .private/
+CLAUDE.md
 
 # IDE
 .vs/
@@ -19,5 +21,6 @@ artifacts/
 
 # Runtime files the app writes next to itself
 settings.json
+settings.json.tmp
 *.log
 *.log.1

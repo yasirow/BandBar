@@ -11,6 +11,7 @@ real desktop. Every release goes through the automated checks below and the manu
 | NetLimiter API pin | `VerifyNetLimiterApi` target | The compile-time `NetLimiter.dll` does not match the pinned SHA-256 |
 | Locked restore | `build.ps1` | A package differs from `packages.lock.json` |
 | Single-file output | `VerifyOutputIsSingleExe` target | The output contains anything besides `BandBar.exe` and `BandBar.exe.config` |
+| Unit tests | `tests/BandBar.Tests` via `build.ps1 -Test` (always run by `tools/package.ps1`, so by CI and the release workflow) | Speed formatting, `settings.json` reading and writing (strict JSON, keys and order kept, invalid files never overwritten, no temporary file left) or the log scrubber misbehave |
 | Installer build | `tools/package.ps1 -RequireInstaller` (CI) | The Inno Setup script does not compile |
 | Tag matches version | Release workflow | The pushed tag differs from `<Version>` in the project |
 
@@ -36,13 +37,43 @@ The log (`bandbar.log`, next to the executable) should contain no `WARN` or `ERR
 
 | # | Steps | Expected |
 |---|---|---|
-| T1 | Click the taskbar, open Start, right-click taskbar buttons, switch windows | The bar stays visible; Start menu and jump lists appear above it |
+| T1 | Click the taskbar, open Start, right-click taskbar buttons, switch windows; close Start by clicking the desktop, with Esc and with the Start button | The bar stays visible (at most a brief flicker); jump lists appear above it. While Start or Search is open on Windows 11 the bar is hidden (known limitation); it is back as soon as the menu closes, whichever way |
 | T2 | Start a program that adds a tray icon, then close it | The bar moves left/right within about a second |
 | T3 | Restart Windows Explorer (Task Manager) | The bar returns to its place |
 | T4 | Move the taskbar to each screen edge (if your setup allows) | The bar follows on the taskbar surface |
 | T5 | Change display scaling or resolution | The bar re-scales and stays inside the taskbar |
 | T6 | Switch virtual desktops (Win+Ctrl+← / →) | The bar stays on the taskbar on every desktop |
-| T7 | On Windows 10, open many windows so taskbar buttons reach the notification area | Known limitation: the bar can overlap buttons; nothing breaks |
+| T7 | On Windows 10, open many windows so taskbar buttons reach the notification area | Known limitation: the bar can overlap buttons; nothing breaks; the bar can be dragged to a free place |
+| T8 | Restart Windows Explorer and watch the bar while the taskbar is gone | The bar stays where it was (it does not jump to the bottom of the screen) and is back on the taskbar when it returns |
+
+### Position and layout
+
+| # | Steps | Expected |
+|---|---|---|
+| P1 | Drag the bar left and right with the left mouse button | It follows the mouse along the taskbar only, never leaves the taskbar, and focus stays in the window you were using |
+| P2 | Click the bar without moving the mouse | It does not move |
+| P3 | Without a `settings.json`, drag it somewhere, exit BandBar and start it again | It comes back at the same place; `settings.json` was created with every key at its default and `anchorOffsetDip` set |
+| P4 | Right-click → Reset position | It returns before the notification area; `anchorOffsetDip` is `null` in `settings.json`, nothing else changed |
+| P5 | With a dragged position, change display scaling | The bar keeps its distance from the end of the taskbar |
+| P6 | Move the taskbar to the left or right edge (if your setup allows) | The bar fits the taskbar's width: two lines if they fit, otherwise four stacked lines (number, unit); dragging works up and down |
+
+### Auto-hiding taskbar
+
+| # | Steps | Expected |
+|---|---|---|
+| H1 | Turn on "Automatically hide the taskbar" (Windows Settings → Personalization → Taskbar) | While the taskbar is hidden the bar is hidden too; when you point at the screen edge and the taskbar slides in, the bar appears on it |
+| H2 | Set `"followAutoHideTaskbar": false` | The bar stays visible at the screen edge while the taskbar is hidden, and stays above the taskbar when it slides in |
+| H3 | Turn auto-hide off again | The bar behaves as before (always visible on the taskbar) |
+
+### Settings and menu
+
+| # | Steps | Expected |
+|---|---|---|
+| C1 | Without a `settings.json`, right-click → Open settings file | The file is created with every key at its default and opens in the `.json` editor, or Notepad |
+| C2 | Change `decimals` to `2` and save | The bar shows two decimals within a second, without a restart |
+| C3 | Save the file with a mistake (delete a closing brace) | The bar keeps its current settings; the log has a `WARN` explaining why |
+| C4 | Fix the file and save; then drag the bar | The fix applies; dragging changes only `anchorOffsetDip` and keeps the rest of the file, including its order |
+| C5 | Right-click → Open log folder | File Explorer opens BandBar's data folder with `bandbar.log` selected |
 
 ### Full screen and games
 
@@ -53,6 +84,7 @@ The log (`bandbar.log`, next to the executable) should contain no `WARN` or `ERR
 | F3 | Repeat F1–F2 with exclusive full screen | Same as F1–F2 |
 | F4 | Play a game protected by anti-cheat | No warning, kick or stutter |
 | F5 | Start BandBar while a full-screen game is already in front | Known limitation until 0.3.0: the bar stays visible until that game closes |
+| F6 | Drag the bar, then start a full-screen game | The bar hides as usual and comes back at its dragged place |
 
 ### Service and failure handling
 
@@ -67,8 +99,8 @@ The log (`bandbar.log`, next to the executable) should contain no `WARN` or `ERR
 | # | Steps | Expected |
 |---|---|---|
 | I1 | Run `BandBar-Setup-x.y.z.exe` | No administrator prompt; installs to `%LocalAppData%\Programs\BandBar`; Start menu entry |
-| I2 | Install a newer version over it | Upgrades in place; `settings.json` kept |
-| I3 | Uninstall from Windows Settings → Apps | The install folder, shortcuts and uninstall entry are gone; nothing else changed |
+| I2 | Install a newer version over it | Upgrades in place; `settings.json` (with a dragged position) kept |
+| I3 | Uninstall from Windows Settings → Apps | The install folder, shortcuts and uninstall entry are gone, including `settings.json`; nothing else changed |
 | I4 | Check `SHA256SUMS.txt` against the downloads | Hashes match |
 | I5 | Look at the Start menu entry, the setup file and Windows Settings → Apps | BandBar's own icon (red and green arrows) is shown |
 | I6 | Run the setup on Windows 10 1809 without .NET Framework 4.8 | A clear message, setup ends without installing anything |
@@ -82,4 +114,5 @@ The log (`bandbar.log`, next to the executable) should contain no `WARN` or `ERR
 | 0.1.2 | Windows 11, NetLimiter 5.3 | B3 passed. T1 re-test pending |
 | 0.1.3 | Windows 11, NetLimiter 5.3 | I1 passed (per-user install, Start menu entry, optional startup shortcut). Installer built and checksums verified by CI |
 | 0.1.4 | Windows 11, NetLimiter 5.3 | Rename release (no behaviour change). I1 passed (installed per user with startup shortcut, runs); I3 passed for the previous version (uninstall left no folder, shortcut or uninstall entry); I4 verified by CI and after download |
-| 0.1.5 | Windows 11, NetLimiter 5.3 | B2, B7, B8 passed (text follows light/dark mode and accent colour without restart); normal use unaffected. T1: a brief flicker remains on Start and taskbar right-click (known limitation; check interval shortened from 50 to ~16 ms afterwards). I1–I5 pending on the published build |
+| 0.1.5 | Windows 11, NetLimiter 5.3 | B2, B7, B8 passed (text follows light/dark mode and accent colour without restart); normal use unaffected. T1: a brief flicker remains on Start and taskbar right-click (known limitation; check interval shortened from 50 to ~16 ms afterwards). I1–I5 pending on the published build; later I1 and I4 passed (clean install of the published setup, checksums match) |
+| 0.2.0 | Windows 11, NetLimiter 5.3 | Automated checks and 94 unit tests pass; the build writes nothing to the user profile or temp folder. Passed: B1, B2, B4, P1–P4, C1 (opens in Notepad), C2, F1–F2, F6, T1 (after the desktop-click fix the bar is back within ~50 ms; hidden while Start is open, measured as a Windows band change). Pending: C3, C4, C5, P5, P6, H1–H3, T8 |

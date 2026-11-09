@@ -3,13 +3,15 @@ using System.Collections.Generic;
 using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Drawing.Text;
+using System.Linq;
 
 namespace BandBar
 {
     /// <summary>
-    /// Metrics and drawing for one DPI and taskbar thickness (docs/DESIGN.md): upload on the top line with a red up
-    /// arrow, download on the bottom line with a green down arrow, text left-aligned after the arrow. The text column
-    /// has a fixed width measured from the widest possible value, so the bar never resizes as the numbers change.
+    /// Metrics and drawing for one DPI and taskbar (docs/DESIGN.md §4): upload with a red up arrow above download with
+    /// a green down arrow, text left-aligned after the arrow. Normally two lines ("12.3 KB/s"); on a vertical taskbar
+    /// that is too narrow for them, four stacked lines (number, then unit). The text column has a fixed width measured
+    /// from the widest possible value, so the bar never resizes as the numbers change.
     /// </summary>
     internal sealed class BarLayout : IDisposable
     {
@@ -18,67 +20,119 @@ namespace BandBar
 
         private readonly Font font;
         private readonly StringFormat format;
-        private readonly int padX, arrowWidth, arrowHeight, arrowGap, lineHeight, textWidth;
+        private readonly int padX, arrowWidth, arrowHeight, arrowGap, blockGap, lineHeight, textWidth;
 
-        /// <param name="maxHeight">Taskbar thickness in pixels; the font shrinks (down to 7 pt) until two lines fit.</param>
-        public BarLayout(uint dpi, int maxHeight, IEnumerable<string> widestTexts)
+        /// <param name="verticalTaskbar">The taskbar is on the left or right edge.</param>
+        /// <param name="thickness">
+        /// The taskbar's thickness in pixels: the height a horizontal taskbar offers, or the width a vertical one offers.
+        /// The font shrinks (down to 7 pt) until the bar fits it.
+        /// </param>
+        /// <param name="widestNumber">A number at least as wide as any value shown.</param>
+        /// <param name="units">Every unit that can follow a number.</param>
+        /// <param name="statuses">Every status text that can replace the values.</param>
+        public BarLayout(uint dpi, bool verticalTaskbar, int thickness, string widestNumber, IEnumerable<string> units,
+                         IEnumerable<string> statuses)
         {
             Dpi = dpi;
-            MaxHeight = maxHeight;
+            VerticalTaskbar = verticalTaskbar;
+            Thickness = thickness;
             format = (StringFormat)StringFormat.GenericTypographic.Clone();
             format.FormatFlags |= StringFormatFlags.NoWrap | StringFormatFlags.MeasureTrailingSpaces;
 
-            float points = PreferredPoints;
-            font = CreateFont(points);
-            while (LineHeightOf(font) * 2 > maxHeight && points > MinimumPoints)
-            {
-                font.Dispose();
-                points -= 0.5f;
-                font = CreateFont(points);
-            }
-
-            lineHeight = LineHeightOf(font);
             padX = Scale(3);
             arrowGap = Scale(4);
             arrowWidth = Scale(8);
-            arrowHeight = Math.Min(Scale(10), lineHeight - Scale(2));
+            blockGap = Scale(2);
 
-            using (var probe = new Bitmap(1, 1))
-            using (Graphics g = Graphics.FromImage(probe))
+            List<string> unitList = units.ToList();
+            List<string> statusList = statuses.ToList();
+            string[] lineTexts = unitList.Select(u => widestNumber + " " + u).Concat(statusList).ToArray();
+            string[] stackedTexts = new[] { widestNumber }.Concat(unitList).Concat(statusList).ToArray();
+
+            float points = PreferredPoints;
+            font = CreateFont(points);
+            if (!verticalTaskbar)
             {
-                g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
-                foreach (string text in widestTexts)
-                    textWidth = Math.Max(textWidth, (int)Math.Ceiling(g.MeasureString(text, font, PointF.Empty, format).Width));
+                while (LineHeightOf(font) * 2 > thickness && points > MinimumPoints)
+                {
+                    font.Dispose();
+                    points -= 0.5f;
+                    font = CreateFont(points);
+                }
+                textWidth = Measure(font, lineTexts);
             }
+            else
+            {
+                textWidth = Measure(font, lineTexts);
+                if (WidthFor(textWidth) > thickness)
+                {
+                    Stacked = true;
+                    textWidth = Measure(font, stackedTexts);
+                    while (WidthFor(textWidth) > thickness && points > MinimumPoints)
+                    {
+                        font.Dispose();
+                        points -= 0.5f;
+                        font = CreateFont(points);
+                        textWidth = Measure(font, stackedTexts);
+                    }
+                }
+            }
+
+            lineHeight = LineHeightOf(font);
+            arrowHeight = Math.Min(Scale(10), lineHeight - Scale(2));
         }
 
         public uint Dpi { get; }
+        public bool VerticalTaskbar { get; }
 
         /// <summary>The taskbar thickness this layout was fitted to.</summary>
-        public int MaxHeight { get; }
+        public int Thickness { get; }
 
-        public Size Size => new Size(padX * 2 + arrowWidth + arrowGap + textWidth, lineHeight * 2);
+        /// <summary>Four lines (number, unit, number, unit) instead of two.</summary>
+        public bool Stacked { get; }
+
+        public Size Size => new Size(WidthFor(textWidth), Stacked ? lineHeight * 4 + blockGap : lineHeight * 2);
+
+        public bool Fits(uint dpi, bool verticalTaskbar, int thickness) =>
+            Dpi == dpi && VerticalTaskbar == verticalTaskbar && Thickness == thickness;
 
         public int Scale(int dip) => (int)Math.Round(dip * Dpi / 96.0);
 
-        public void Draw(Graphics g, string up, string down, Color upArrow, Color downArrow, Color text)
+        public void Draw(Graphics g, SpeedText up, SpeedText down, Color upArrow, Color downArrow, Color text)
         {
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit; // ClearType would fringe on a transparent background
-            DrawLine(g, 0, up, pointsUp: true, upArrow, text);
-            DrawLine(g, lineHeight, down, pointsUp: false, downArrow, text);
+            if (!Stacked)
+            {
+                DrawLine(g, 0, up.ToString(), pointsUp: true, upArrow, text);
+                DrawLine(g, lineHeight, down.ToString(), pointsUp: false, downArrow, text);
+                return;
+            }
+
+            int downTop = lineHeight * 2 + blockGap;
+            DrawLine(g, 0, up.Number, pointsUp: true, upArrow, text);
+            DrawText(g, lineHeight, up.Unit, text);
+            DrawLine(g, downTop, down.Number, pointsUp: false, downArrow, text);
+            DrawText(g, downTop + lineHeight, down.Unit, text);
         }
+
+        private int WidthFor(int textColumn) => padX * 2 + arrowWidth + arrowGap + textColumn;
 
         private void DrawLine(Graphics g, int top, string value, bool pointsUp, Color arrowColor, Color textColor)
         {
-            int x = padX;
             int y = top + (lineHeight - arrowHeight) / 2;
             using (var brush = new SolidBrush(arrowColor))
-                g.FillPolygon(brush, BlockArrow(x, y, arrowWidth, arrowHeight, pointsUp));
+                g.FillPolygon(brush, BlockArrow(padX, y, arrowWidth, arrowHeight, pointsUp));
+            DrawText(g, top, value, textColor);
+        }
 
+        private void DrawText(Graphics g, int top, string value, Color textColor)
+        {
+            if (string.IsNullOrEmpty(value))
+                return;
             float textTop = top + (lineHeight - font.GetHeight()) / 2f;
             using (var brush = new SolidBrush(textColor))
-                g.DrawString(value ?? "", font, brush, new PointF(x + arrowWidth + arrowGap, textTop), format);
+                g.DrawString(value, font, brush, new PointF(padX + arrowWidth + arrowGap, textTop), format);
         }
 
         // Triangle head plus a rectangular stem; defined pointing up and mirrored vertically for down.
@@ -99,6 +153,19 @@ namespace BandBar
                 new PointF(cx - halfStem, Y(head)),
                 new PointF(x, Y(head)),
             };
+        }
+
+        private int Measure(Font f, IEnumerable<string> texts)
+        {
+            int width = 0;
+            using (var probe = new Bitmap(1, 1))
+            using (Graphics g = Graphics.FromImage(probe))
+            {
+                g.TextRenderingHint = TextRenderingHint.AntiAliasGridFit;
+                foreach (string text in texts)
+                    width = Math.Max(width, (int)Math.Ceiling(g.MeasureString(text, f, PointF.Empty, format).Width));
+            }
+            return width;
         }
 
         private Font CreateFont(float points) =>

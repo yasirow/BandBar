@@ -5,13 +5,20 @@
 .PARAMETER Configuration
     Debug or Release (default).
 
+.PARAMETER Test
+    Also build and run the unit tests (tests\BandBar.Tests).
+
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\build.ps1
+
+.EXAMPLE
+    powershell -ExecutionPolicy Bypass -File .\build.ps1 -Test
 #>
 [CmdletBinding()]
 param(
     [ValidateSet('Debug', 'Release')]
-    [string] $Configuration = 'Release'
+    [string] $Configuration = 'Release',
+    [switch] $Test
 )
 
 $ErrorActionPreference = 'Stop'
@@ -19,7 +26,7 @@ Set-StrictMode -Version Latest
 
 $root = $PSScriptRoot
 $project = Join-Path $root 'src\BandBar\BandBar.csproj'
-$lockFile = Join-Path $root 'src\BandBar\packages.lock.json'
+$testProject = Join-Path $root 'tests\BandBar.Tests\BandBar.Tests.csproj'
 
 # SDK and NuGet per-user state goes into the repository instead of the user profile.
 # On first use NuGet writes a default user NuGet.Config under %APPDATA% and a migrations marker under the
@@ -34,6 +41,12 @@ $env:NUGET_PACKAGES = Join-Path $root '.packages'
 $env:NUGET_HTTP_CACHE_PATH = Join-Path $root '.nuget\http-cache'
 $env:NUGET_PLUGINS_CACHE_PATH = Join-Path $root '.nuget\plugins-cache'
 $env:NUGET_SCRATCH = Join-Path $root '.nuget\scratch'
+
+# Temporary files of the build and of test runs stay inside the repository too.
+$tempDir = Join-Path $userHome 'Temp'
+New-Item -ItemType Directory -Force -Path $tempDir | Out-Null
+$env:TEMP = $tempDir
+$env:TMP = $tempDir
 
 # No telemetry, no first-run side effects, no background update checks.
 $env:DOTNET_CLI_TELEMETRY_OPTOUT = '1'
@@ -55,10 +68,23 @@ if (-not (Test-Path $dotnet)) {
 
 # --force: regenerate obj\*.nuget.g.props every time, since they may hold profile-relative package paths written
 # by a build outside this script (an IDE, for example). Packages are already local, so this costs about a second.
-$restoreArgs = @('restore', $project, '--configfile', (Join-Path $root 'nuget.config'), '--force')
-if (Test-Path $lockFile) { $restoreArgs += '--locked-mode' }
-& $dotnet @restoreArgs
+function Restore([string] $projectFile) {
+    $restoreArgs = @('restore', $projectFile, '--configfile', (Join-Path $root 'nuget.config'), '--force')
+    if (Test-Path (Join-Path (Split-Path $projectFile -Parent) 'packages.lock.json')) { $restoreArgs += '--locked-mode' }
+    & $dotnet @restoreArgs
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+Restore $project
+& $dotnet build $project -c $Configuration --no-restore -nodeReuse:false -p:UseSharedCompilation=false
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-& $dotnet build $project -c $Configuration --no-restore -nodeReuse:false -p:UseSharedCompilation=false
-exit $LASTEXITCODE
+if ($Test) {
+    # The test project references the app project; restoring it restores both.
+    Restore $testProject
+    & $dotnet test $testProject -c $Configuration --no-restore -nodeReuse:false -p:UseSharedCompilation=false `
+        --results-directory (Join-Path $userHome 'TestResults')
+    if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+}
+
+exit 0

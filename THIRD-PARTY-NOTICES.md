@@ -21,7 +21,8 @@ BandBar runs on the .NET Framework 4.8 that is part of Windows. The build uses M
 [.NET Framework reference assemblies](https://www.nuget.org/packages/Microsoft.NETFramework.ReferenceAssemblies)
 (MIT License) at compile time only.
 
-## Build and packaging tools
+## Build, test and packaging tools
 
-The installer is created with [Inno Setup](https://jrsoftware.org/isinfo.php) (Inno Setup License). These tools
-are used only to build releases and are not included in them.
+The installer is created with [Inno Setup](https://jrsoftware.org/isinfo.php) (Inno Setup License). The unit tests
+use Microsoft's [MSTest](https://github.com/microsoft/testfx) test framework (MIT License). These tools are used only
+to build and test releases and are not included in them.

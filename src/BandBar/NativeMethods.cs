@@ -51,7 +51,9 @@ namespace BandBar
         // AppBar messages and notifications
         public const uint ABM_NEW = 0x00000000;
         public const uint ABM_REMOVE = 0x00000001;
+        public const uint ABM_GETSTATE = 0x00000004;
         public const uint ABM_GETTASKBARPOS = 0x00000005;
+        public const uint ABS_AUTOHIDE = 0x0000001;
         public const int ABN_STATECHANGE = 0x0000000;
         public const int ABN_POSCHANGED = 0x0000001;
         public const int ABN_FULLSCREENAPP = 0x0000002;
@@ -64,7 +66,11 @@ namespace BandBar
         // FOREGROUND..CAPTUREEND is one contiguous range: foreground, menu start/end, popup menu start/end,
         // mouse capture start/end.
         public const uint EVENT_SYSTEM_FOREGROUND = 0x0003;
+        public const uint EVENT_SYSTEM_MENUPOPUPEND = 0x0007;
         public const uint EVENT_SYSTEM_CAPTUREEND = 0x0009;
+        // Only while the taskbar auto-hides, and only for the taskbar's own thread (docs/DESIGN.md §5.2).
+        public const uint EVENT_OBJECT_LOCATIONCHANGE = 0x800B;
+        public const int OBJID_WINDOW = 0;
         public const uint WINEVENT_OUTOFCONTEXT = 0x0000;
         public const uint WINEVENT_SKIPOWNPROCESS = 0x0002;
 
@@ -218,6 +224,10 @@ namespace BandBar
         [DllImport("user32.dll")]
         public static extern IntPtr GetAncestor(IntPtr hwnd, uint gaFlags);
 
+        /// <summary>The desktop window (Progman); it covers the monitor but is not a full-screen application.</summary>
+        [DllImport("user32.dll")]
+        public static extern IntPtr GetShellWindow();
+
         [DllImport("user32.dll")]
         public static extern IntPtr SetWinEventHook(uint eventMin, uint eventMax, IntPtr hmodWinEventProc,
             WinEventProc pfnWinEventProc, uint idProcess, uint idThread, uint dwFlags);
@@ -225,6 +235,10 @@ namespace BandBar
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]
         public static extern bool UnhookWinEvent(IntPtr hWinEventHook);
+
+        /// <summary>Used on the taskbar window only, to restrict the location WinEvent to its thread.</summary>
+        [DllImport("user32.dll")]
+        public static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint lpdwProcessId);
 
         [DllImport("user32.dll")]
         [return: MarshalAs(UnmanagedType.Bool)]

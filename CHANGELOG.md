@@ -8,6 +8,52 @@ milestone is a minor release (`0.x.0`) and fixes in between are patch releases (
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-11-09
+
+### Added
+- **Drag the bar** with the left mouse button to any place along the taskbar. It stays inside the taskbar, a plain
+  click never moves it, and the place is remembered (`anchorOffsetDip`) across restarts and scaling changes.
+- **Reset position** in the right-click menu puts the bar back before the notification area.
+- **Stacked layout for left and right taskbars:** when the two lines do not fit a vertical taskbar, the number and
+  the unit go on separate lines and the font shrinks until the bar fits the taskbar's width.
+- **Auto-hiding taskbars:** the bar hides and stops reading while the taskbar is hidden, and comes back when it
+  slides in. New setting `followAutoHideTaskbar` (default `true`); `false` keeps the bar at the screen edge.
+- **Settings apply without a restart:** saving `settings.json` takes effect within a moment. A file with a mistake
+  is ignored (with a log entry) and the current settings stay.
+- **Open settings file** and **Open log folder** in the right-click menu. Whenever BandBar creates the settings file
+  (by this menu item or by the first drag), it contains every key at its default, so all options are in view.
+- Tooltip hint: drag to move, right-click for the menu.
+
+### Fixed
+- After a click on the desktop (for example to close Start), the taskbar could stay above the bar for a second or
+  more. The desktop covers the whole screen, so the bar mistook it for a full-screen application and skipped its
+  check; the desktop is now told apart (`GetShellWindow`), and the bar is back within a few milliseconds.
+
+### Changed
+- When Explorer restarts, the bar now stays where it was until the taskbar is back, instead of jumping to the
+  bottom of the screen for a few seconds.
+- With `"logLevel": "debug"`, the log records when the taskbar got above the bar and how long after which event, to
+  help diagnose taskbar setups.
+- `settings.json` must be one complete JSON object; a file cut off half-way through a save is no longer accepted.
+- Unit tests (MSTest 3.1.1, test-time only) for speed formatting, settings and the log scrubber run on every build
+  in CI and before every release.
+- The build also keeps its temporary files inside the repository.
+
+### Security
+- New rule for starting other programs (docs/DESIGN.md §7.4): only when the user picks a menu item, only fixed
+  targets (BandBar's own settings file in the user's editor or Notepad, its own folder in File Explorer), never
+  elevated, nothing kept afterwards.
+- BandBar writes `settings.json` only on a user action, changes only the key concerned, never overwrites a file it
+  cannot read, and writes through a temporary file so the file is never left half-written.
+- The auto-hide support adds one more out-of-context WinEvent (`EVENT_OBJECT_LOCATIONCHANGE`), restricted to the
+  taskbar's own thread and installed only while the taskbar auto-hides. Still no hooks into other processes.
+- MSTest 3.1.1 was chosen because later versions depend on a telemetry package.
+
+### Known limitations
+- With an auto-hiding taskbar the bar appears once the taskbar has finished sliding in; it does not slide along.
+- While Start or Search is open on Windows 11, the bar is hidden. Measured: Windows moves the taskbar into the Start
+  menu's own layer, above every application window, for that time. Only Windows' shell components can draw there.
+
 ## [0.1.5] - 2026-10-16
 
 ### Added
@@ -122,7 +168,8 @@ Initial preview.
 - An auto-hiding taskbar is not supported yet.
 - If the app is started while a full-screen game is already running, it does not hide until that game closes.
 
-[Unreleased]: https://github.com/yasirow/BandBar/compare/v0.1.5...HEAD
+[Unreleased]: https://github.com/yasirow/BandBar/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/yasirow/BandBar/releases/tag/v0.2.0
 [0.1.5]: https://github.com/yasirow/BandBar/releases/tag/v0.1.5
 [0.1.4]: https://github.com/yasirow/BandBar/releases/tag/v0.1.4
 [0.1.3]: https://github.com/yasirow/BandBar/blob/main/CHANGELOG.md#013---2026-10-14

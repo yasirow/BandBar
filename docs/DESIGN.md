@@ -146,11 +146,16 @@ because messages can contain paths.
 - **Layout:** two lines; upload with a red up arrow on top, download with a green down arrow below; text
   left-aligned after the arrow. Arrows are drawn shapes (triangle head and stem), not font glyphs. Segoe UI 9 pt,
   scaled for DPI and reduced (down to 7 pt) when two lines do not fit the taskbar.
+- **Stacked layout (left and right taskbars):** when the two-line layout is wider than a vertical taskbar, each
+  value is split into its number and its unit on separate lines — four lines in total, the arrow beside the number
+  — and the font is reduced (down to 7 pt) until the bar fits the taskbar's width.
 - **Fixed width:** the text column is measured from the widest possible value, so the bar never resizes.
 - **Units:** B/s → KB/s → MB/s → GB/s, base 1024 (or 1000), one decimal by default. Values are truncated, never
   rounded up. The decimal separator follows the Windows region settings.
-- **Menu:** a native Win32 menu (`TrackPopupMenuEx` via WinForms `ContextMenu`). The bar calls
-  `SetForegroundWindow` only when the user right-clicks it, so the menu can close when the user clicks elsewhere.
+- **Menu:** a native Win32 menu (`TrackPopupMenuEx` via WinForms `ContextMenu`): *Reset position* (available
+  while a dragged position is saved), *Open settings file*, *Open log folder*, *Exit*. The bar calls `SetForegroundWindow`
+  only when the user right-clicks it, so the menu can close when the user clicks elsewhere. The two *Open* items
+  start another program, under the rules in [§7.4](#74-starting-other-programs).
 - **UI language:** Turkish when the Windows display language is Turkish, English otherwise.
 
 ## 5. Taskbar tracking
@@ -169,7 +174,39 @@ because messages can contain paths.
 - **Growing notification area:** the shell sends no notification when the notification area grows (a new tray
   icon, a wider clock). In the default position the notification area's rectangle is compared on each once-per-second
   reading the bar already receives — one `GetWindowRect`, no extra timer.
-- **Vertical taskbars:** the same two-line layout, centred on the taskbar.
+- **Vertical taskbars:** the bar is centred on the taskbar, in the two-line layout if it fits the taskbar's width
+  and in the stacked layout ([§4](#4-window-and-rendering)) otherwise.
+- **Explorer restarting:** while the taskbar does not exist, the bar keeps its last position (it only falls back to
+  an estimate, the bottom of the primary screen, if it has never been placed) and waits for `TaskbarCreated`.
+
+### 5.1 Moving the bar
+
+- **Dragging:** the user drags the bar with the left mouse button **along the taskbar only** (left–right on a
+  horizontal taskbar, up–down on a vertical one), and the bar stays inside the taskbar. A movement smaller than the
+  system drag threshold is a click and moves nothing. While dragging, the bar uses the mouse capture of its own
+  window (standard WinForms mouse events); no hook is involved and the bar is still never activated.
+- **Remembering:** on release, the distance between the bar and the taskbar's end (right or bottom) is saved in
+  DIP as `anchorOffsetDip` ([§8.1](#81-settingsjson)), so the place survives restarts and scaling changes. Moving
+  the taskbar to another edge keeps the same distance on the new edge.
+- **Reset position** in the menu sets `anchorOffsetDip` back to `null`: the bar returns to its default place before
+  the notification area.
+
+### 5.2 Auto-hiding taskbar
+
+- The taskbar's auto-hide state is read with `SHAppBarMessage(ABM_GETSTATE)` at start-up and on every
+  `ABN_STATECHANGE`. Its position — like that of any taskbar that is still partly off its monitor, for example right
+  after auto-hide is turned off — is taken as the place where it appears when shown (the monitor edge), never from
+  where it is while hidden. The same applies to the notification area used for the default position.
+- The shell sends no notification when an auto-hiding taskbar slides in or out. **Only while auto-hide is on**, the
+  bar therefore listens to one more out-of-context WinEvent, `EVENT_OBJECT_LOCATIONCHANGE`, **restricted to the
+  taskbar's own thread** (`GetWindowThreadProcessId` of `Shell_TrayWnd`, used for nothing else) and ignored for any
+  window other than the taskbar itself. Like the other WinEvent range ([§6.2](#62-staying-above-the-taskbar)), it is
+  posted to the bar's own message loop; nothing is loaded into Explorer.
+- `followAutoHideTaskbar: true` (default): the bar is shown only while the taskbar is fully shown, and reading stops
+  while it is hidden — the same hiding as for full screen ([§6.1](#61-full-screen)). `false`: the bar stays visible
+  at the screen edge where the taskbar appears.
+- When the taskbar slides in, the bar checks the window order as after any other taskbar event, so it does not stay
+  under the taskbar.
 
 ## 6. Full screen and z-order
 
@@ -200,7 +237,13 @@ offers no "the taskbar moved above you" notification.
   the window order (`GetWindow(GW_HWNDPREV)`). Only if it is covered does it move itself directly above the taskbar
   (not to the very top), so Start, jump lists and tooltips stay above the bar. With no events, nothing runs.
 - If the new foreground window covers its monitor, the bar does not come forward; the full-screen notification
-  hides it instead.
+  hides it instead. The desktop itself (`GetShellWindow`) is the exception: it covers the monitor too, and clicking
+  it — for example to close Start — is exactly when the taskbar raises itself.
+- While Start or Search is open, Windows 11 moves the taskbar into the z-order band of the Start menu, which lies
+  above the desktop band that holds every application window, always-on-top ones included (measured: the taskbar
+  switches from band 1 to band 6 while Start is open, the bar stays in band 1). The bar is therefore hidden for that
+  time even though it is above the taskbar in the window order, and is visible again when Windows moves the taskbar
+  back. Only shell components can create windows in that band; not even UI Access reaches it.
 - A few milliseconds of overlap can remain. Avoiding even that would require becoming part of the taskbar, which
   rule 5 forbids. Making the taskbar the bar's owner window is also rejected: Explorer restarts would destroy the bar.
 
@@ -216,6 +259,7 @@ offers no "the taskbar moved above you" notification.
 - Any network connection or listening port. The API's internet features (VirusTotal, DNS, HTTP) are never called.
 - NetLimiter's remote connection, its TCP binding, or changes to its settings, rules or access table.
 - Writing to another program's files, folders or registry keys.
+- Starting another program, except as described in [§7.4](#74-starting-other-programs).
 - Telemetry, automatic updates, crash reporting, or downloading anything.
 - Storing credentials (the named pipe uses the Windows identity).
 
@@ -223,11 +267,13 @@ offers no "the taskbar moved above you" notification.
 
 | Purpose | Calls |
 |---|---|
-| Taskbar geometry and notifications | `SHAppBarMessage`, `FindWindow`, `FindWindowEx`, `GetWindowRect`, `RegisterWindowMessage("TaskbarCreated")` |
+| Taskbar geometry and notifications | `SHAppBarMessage` (`ABM_NEW`, `ABM_REMOVE`, `ABM_GETTASKBARPOS`, `ABM_GETSTATE`; never `ABM_SETPOS`), `FindWindow`, `FindWindowEx`, `GetWindowRect`, `RegisterWindowMessage("TaskbarCreated")` |
 | Monitors and DPI | `MonitorFromRect`, `MonitorFromWindow`, `GetMonitorInfo`, `GetDpiForMonitor` |
-| Our own window | `SetWindowPos`, `UpdateLayeredWindow`, `GetDC`, `ReleaseDC`, `CreateCompatibleDC`, `DeleteDC`, `SelectObject`, `DeleteObject`, `SetForegroundWindow` (only on right-click) |
-| Window order | `SetWinEventHook` (out of context only), `UnhookWinEvent`, `GetWindow(GW_HWNDPREV)`, `GetAncestor(GA_ROOT)` |
+| Our own window | `SetWindowPos`, `UpdateLayeredWindow`, `GetDC`, `ReleaseDC`, `CreateCompatibleDC`, `DeleteDC`, `SelectObject`, `DeleteObject`, `SetForegroundWindow` (only on right-click); mouse capture of our own window while it is dragged (WinForms) |
+| Window order | `SetWinEventHook` (out of context only: `EVENT_SYSTEM_FOREGROUND`…`EVENT_SYSTEM_CAPTUREEND`, and `EVENT_OBJECT_LOCATIONCHANGE` for the taskbar's thread only while it auto-hides), `UnhookWinEvent`, `GetWindow(GW_HWNDPREV)`, `GetAncestor(GA_ROOT)`, `GetWindowThreadProcessId` (the taskbar window only, to restrict that WinEvent), `GetShellWindow` (to tell the desktop from a full-screen application) |
 | Our own process | `SetErrorMode` (no error dialogs), `WinVerifyTrust` (API signature, no network) |
+| Our own files | Read, write and watch `settings.json` in our data folder ([§8](#8-files-and-settings)); `FileSystemWatcher` on that folder, for that file name only |
+| Starting a program | `Process.Start` (`ShellExecuteEx`) under the rules in [§7.4](#74-starting-other-programs) |
 | Registry (read only) | NetLimiter's uninstall entry under `HKLM` (install folder); `HKCU` `Themes\Personalize` and `DWM` values (text colour) |
 
 Planned for later milestones and subject to the same rules: `GetForegroundWindow`, `SHQueryUserNotificationState`,
@@ -242,6 +288,25 @@ game list is enabled.
 - An unhandled exception on any other thread is logged and ends only this process (`Environment.Exit`). Windows
   error dialogs are suppressed (`SetErrorMode`), so nothing can pop up over a game.
 
+### 7.4 Starting other programs
+
+BandBar starts another program only to show the user something they asked for:
+
+- **Only on a click.** Only as the direct result of the user choosing a menu item — never at start-up, never from a
+  timer, a setting, a file or a NetLimiter event.
+- **Only fixed targets.** The target is built by the app, never taken from a setting or from external input:
+
+  | Menu item | Starts | Since |
+  |---|---|---|
+  | *Open settings file* | Our own `settings.json` with the program Windows associates with `.json` files, or Windows' Notepad (`%SystemRoot%\System32\notepad.exe`) when there is none. If the file does not exist yet, it is first created with every key at its default ([§8.1](#81-settingsjson)). | 0.2.0 |
+  | *Open log folder* | Windows' File Explorer (`%SystemRoot%\explorer.exe`) showing our own data folder, with `bandbar.log` selected | 0.2.0 |
+  | *Open NetLimiter* (planned) | NetLimiter's executable from the install folder that was verified for the API ([§3.1](#31-where-it-comes-from)) | 0.4.0 |
+  | *Releases page* (planned) | The fixed project URL `https://github.com/yasirow/BandBar/releases` in the default browser; BandBar itself still never connects | 0.4.0 |
+
+- **No elevation.** Never the `runas` verb or anything else that could ask for administrator rights.
+- **Fire and forget.** The started program runs on its own: BandBar keeps no handle to it, does not wait for it and
+  never sends it input. A failure to start is logged and nothing else happens (no error dialog).
+
 ## 8. Files and settings
 
 BandBar writes only next to its executable when that folder is writable (the installer's default), otherwise to
@@ -250,8 +315,21 @@ installer's optional, unchecked "start with Windows" task creates a shortcut in 
 
 ### 8.1 `settings.json`
 
-Optional. Read at start-up; ignored (with a log entry) if it is invalid or larger than 64 KB. The app does not write
-it yet.
+Optional. Read at start-up; ignored (with a log entry) if it is invalid or larger than 64 KB.
+
+- **Changes apply at once.** A `FileSystemWatcher` on the data folder, for this one file name, reports changes; the
+  file is read again 300 ms after the last one and applied without a restart. If the changed file is invalid (for
+  example saved half-way through an edit), the current settings stay in effect and a warning is logged; a deleted
+  file means the defaults.
+- **What the app writes, and when.** Only on a user action: dragging the bar (`anchorOffsetDip`), *Reset position*
+  (sets `anchorOffsetDip` to `null`) and *Open settings file*. When no file exists yet, whichever of these comes
+  first creates it with every key below at its default (and the new position), so the user always finds the full
+  list in it; resetting with no file creates nothing. An existing file is changed **only in the key concerned**:
+  every other key, unknown keys, and their order are kept. An existing file that is invalid or larger than 64 KB is
+  never overwritten; the new position then lasts for the session and a warning is logged.
+- **Atomic.** The new content is written to `settings.json.tmp` in the same folder and then swapped in
+  (`File.Replace`, or `File.Move` when there is no file yet), so a crash or power loss leaves either the old or the
+  new file, never half of one.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -263,8 +341,9 @@ it yet.
 | `colors.text` | `null` | `null` = from `theme` (`#FFFFFF` on a dark taskbar, `#1A1A1A` on a light one) |
 | `colors.background` | `null` | `null` = transparent; a colour is drawn with `opacity` |
 | `opacity` | `0.85` | Background opacity when a background colour is set |
-| `anchorOffsetDip` | `null` | `null` = before the notification area; otherwise DIP from the taskbar's end |
+| `anchorOffsetDip` | `null` | `null` = before the notification area; otherwise DIP from the taskbar's end (right or bottom). Set by dragging the bar |
 | `hideOnFullscreen` | `true` | Hide while a full-screen application is in front |
+| `followAutoHideTaskbar` | `true` | With an auto-hiding taskbar: `true` = show the bar only while the taskbar is shown; `false` = keep it visible at the screen edge |
 | `logLevel` | `"info"` | `debug`, `info`, `warn`, `error` |
 
 Example:
@@ -293,6 +372,13 @@ attached to a public issue.
 - **Other packages:** only Microsoft's .NET Framework reference assemblies (build-time only). They are referenced
   explicitly, so a clean PC and a CI runner with the targeting pack installed compile against the same files; they
   are locked by `packages.lock.json` and restored in locked mode.
+- **Unit tests:** `tests/BandBar.Tests` (MSTest, test-time only, never part of a release) covers speed formatting,
+  reading and writing `settings.json` and the log scrubber. It uses MSTest **3.1.1** on purpose: from 3.2 on, MSTest
+  depends on a telemetry package, and this project does not take one even at test time. Its packages are locked like
+  the app's. `build.ps1 -Test` runs the tests; `tools/package.ps1`, and with it CI and the release workflow, always
+  does.
+- **Temporary files:** `build.ps1` also points `TEMP` and `TMP` at `.dotnet-home\Temp`, so build and test runs
+  leave nothing in the user's temp folder.
 - **Output check:** the build fails if its output contains anything other than `BandBar.exe` and
   `BandBar.exe.config`.
 - **Reproducibility and privacy:** `Deterministic`, `PathMap` and no PDB in Release, so no build-machine path or user
@@ -328,11 +414,12 @@ SHA-256 checksums.
 
 ## 11. Known limitations
 
-- The bar cannot be dragged and its position is not saved yet.
-- An auto-hiding taskbar is not supported yet.
 - Started while a full-screen game is already in front, the bar does not hide until that game closes.
 - Only the primary taskbar is used.
 - The bar cannot reserve space on the taskbar; with many taskbar buttons it can overlap them (most likely on
-  Windows 10, where taskbar buttons can reach the notification area).
+  Windows 10, where taskbar buttons can reach the notification area). It can be dragged to a free place.
+- With an auto-hiding taskbar the bar appears when the taskbar has finished sliding in; it does not slide with it.
+- While Start or Search is open on Windows 11, the bar is hidden: Windows puts the taskbar into a layer above all
+  application windows for that time ([§6.2](#62-staying-above-the-taskbar)).
 - While it runs, BandBar keeps NetLimiter's API files loaded. Exit BandBar before updating NetLimiter, so the
   NetLimiter installer does not find those files in use.

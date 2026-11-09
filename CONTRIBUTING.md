@@ -45,18 +45,26 @@ A system-wide .NET SDK 10 works too.
 # Build (Release by default; output: src\BandBar\bin\Release\net48\BandBar.exe)
 powershell -ExecutionPolicy Bypass -File .\build.ps1
 
-# Build and create release packages in artifacts\ (the installer needs Inno Setup 6)
+# Build and run the unit tests (tests\BandBar.Tests, MSTest)
+powershell -ExecutionPolicy Bypass -File .\build.ps1 -Test
+
+# Build, test and create release packages in artifacts\ (the installer needs Inno Setup 6)
 powershell -ExecutionPolicy Bypass -File .\tools\package.ps1
 ```
+
+The unit tests cover what can be checked without a desktop: speed formatting, reading and writing
+`settings.json`, and the log scrubber. Everything that involves the taskbar is in the
+[manual test plan](docs/TESTING.md).
 
 ## Making a change
 
 1. Open an issue first for anything bigger than a small fix, so we can agree on the approach.
 2. Keep the change focused; match the surrounding code style (`.editorconfig`).
 3. If behaviour or a rule changes, update [docs/DESIGN.md](docs/DESIGN.md) in the same pull request.
-4. Run the relevant parts of the [manual test plan](docs/TESTING.md) and say which ones in the pull request.
-5. Add an entry under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md).
-6. The build must pass with zero warnings.
+4. Add or update unit tests for logic that does not need a desktop, and run `build.ps1 -Test`.
+5. Run the relevant parts of the [manual test plan](docs/TESTING.md) and say which ones in the pull request.
+6. Add an entry under `## [Unreleased]` in [CHANGELOG.md](CHANGELOG.md).
+7. The build must pass with zero warnings, and all unit tests must pass.
 
 ## Versioning and releases
 

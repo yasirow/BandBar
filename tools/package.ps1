@@ -11,7 +11,7 @@
     Fail when Inno Setup is not available (used by CI). Without it, the installer is skipped with a warning.
 
 .PARAMETER SkipBuild
-    Package the existing Release build instead of building first.
+    Package the existing Release build instead of building (and testing) first.
 
 .EXAMPLE
     powershell -ExecutionPolicy Bypass -File .\tools\package.ps1
@@ -38,8 +38,9 @@ Write-Host "BandBar $version"
 
 if (-not $SkipBuild) {
     # A separate process, so the build's environment redirection does not leak into packaging.
-    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'build.ps1') -Configuration Release
-    if ($LASTEXITCODE -ne 0) { throw "Build failed ($LASTEXITCODE)." }
+    # -Test: no package is made unless the unit tests pass.
+    & powershell.exe -NoProfile -ExecutionPolicy Bypass -File (Join-Path $root 'build.ps1') -Configuration Release -Test
+    if ($LASTEXITCODE -ne 0) { throw "Build or tests failed ($LASTEXITCODE)." }
 }
 
 foreach ($file in 'BandBar.exe', 'BandBar.exe.config') {

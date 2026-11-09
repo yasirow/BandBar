@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Unit tests: test-time only, never part of a release (docs/DESIGN.md §9).
+    MSTest 3.1.1 on purpose: from 3.2 on, MSTest depends on a telemetry package.
+    The tests run on the .NET Framework test host that ships with the .NET SDK (build.ps1 -Test).
+  -->
+  <PropertyGroup>
+    <TargetFramework>net48</TargetFramework>
+    <PlatformTarget>x64</PlatformTarget>
+    <IsTestProject>true</IsTestProject>
+    <IsPackable>false</IsPackable>
+    <RootNamespace>BandBar.Tests</RootNamespace>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+    <AutomaticallyUseReferenceAssemblyPackages>false</AutomaticallyUseReferenceAssemblyPackages>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NETFramework.ReferenceAssemblies" Version="1.0.3" PrivateAssets="all" />
+    <PackageReference Include="MSTest.TestFramework" Version="3.1.1" />
+    <PackageReference Include="MSTest.TestAdapter" Version="3.1.1" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\BandBar\BandBar.csproj" />
+  </ItemGroup>
+
+</Project>

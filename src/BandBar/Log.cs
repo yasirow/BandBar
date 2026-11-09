@@ -19,14 +19,18 @@ namespace BandBar
         private static readonly Encoding Utf8NoBom = new UTF8Encoding(false);
         private static string path;
         private static Level minLevel = Level.Info;
-        private static (string Find, string Replace)[] scrubPairs = Array.Empty<(string, string)>();
-        private static Regex scrubUserSegment;
-        private static Regex scrubMachine;
+        private static LogScrubber scrubber = new LogScrubber(Array.Empty<(string, string)>(), null, null);
+
+        /// <summary>The log file, or null when there is none.</summary>
+        public static string FilePath => path;
+
+        /// <summary>Whether debug lines are written; lets callers skip work that only feeds a debug line.</summary>
+        public static bool IsDebugEnabled => path != null && minLevel <= Level.Debug;
 
         public static void Init(string dataDir)
         {
             path = dataDir == null ? null : Path.Combine(dataDir, AppPaths.LogFileName);
-            BuildScrubber();
+            scrubber = LogScrubber.ForCurrentUser();
         }
 
         public static void SetLevel(string level)
@@ -55,7 +59,7 @@ namespace BandBar
             sb.Append(" [").Append(level.ToString().ToUpperInvariant()).Append("] ").Append(message);
             if (ex != null)
                 sb.Append(" | ").Append(Describe(ex, withStack: level == Level.Error));
-            string line = Scrub(sb.ToString()) + Environment.NewLine;
+            string line = scrubber.Scrub(sb.ToString()) + Environment.NewLine;
 
             lock (Gate)
             {
@@ -91,47 +95,61 @@ namespace BandBar
             return sb.ToString();
         }
 
-        private static void BuildScrubber()
+    }
+
+    /// <summary>
+    /// Masks personal details before a log line is written (docs/DESIGN.md §8.2): profile, AppData and temp paths,
+    /// the computer name as a whole word, and the user name as a path segment.
+    /// </summary>
+    internal sealed class LogScrubber
+    {
+        private readonly (string Find, string Replace)[] pairs;
+        private readonly Regex machine;
+        private readonly Regex userSegment;
+
+        /// <param name="folders">Paths and their placeholders, most specific first.</param>
+        public LogScrubber(System.Collections.Generic.IEnumerable<(string Find, string Replace)> folders, string machineName, string userName)
         {
-            var pairs = new System.Collections.Generic.List<(string, string)>();
-            void Add(Environment.SpecialFolder folder, string placeholder)
+            var list = new System.Collections.Generic.List<(string, string)>();
+            foreach ((string find, string replace) in folders)
             {
-                string value = Environment.GetFolderPath(folder);
-                if (!string.IsNullOrEmpty(value))
-                    pairs.Add((value, placeholder));
+                string trimmed = (find ?? "").TrimEnd('\\', '/');
+                if (trimmed.Length > 0)
+                    list.Add((trimmed, replace));
             }
-
-            // Most specific first.
-            Add(Environment.SpecialFolder.LocalApplicationData, "%LOCALAPPDATA%");
-            Add(Environment.SpecialFolder.ApplicationData, "%APPDATA%");
-            Add(Environment.SpecialFolder.UserProfile, "%USERPROFILE%");
-            string temp = Path.GetTempPath().TrimEnd('\\');
-            if (temp.Length > 0)
-                pairs.Insert(0, (temp, "%TEMP%"));
-
-            scrubPairs = pairs.ToArray();
+            pairs = list.ToArray();
 
             // The computer name only as a whole word, so a name such as "WIN" does not turn "Windows" into "<machine>dows".
-            string machine = Environment.MachineName;
-            if (!string.IsNullOrEmpty(machine))
-                scrubMachine = new Regex(@"(?<![A-Za-z0-9_-])" + Regex.Escape(machine) + @"(?![A-Za-z0-9_-])",
+            if (!string.IsNullOrEmpty(machineName))
+                machine = new Regex(@"(?<![A-Za-z0-9_-])" + Regex.Escape(machineName) + @"(?![A-Za-z0-9_-])",
                     RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
 
             // The user name only where it can be one: a path segment or DOMAIN\user. A short name such as "A"
             // must not be replaced inside ordinary words.
-            string user = Environment.UserName;
-            if (!string.IsNullOrEmpty(user))
-                scrubUserSegment = new Regex(@"(?<=[\\/])" + Regex.Escape(user) + @"(?=[\\/]|$|\s)",
+            if (!string.IsNullOrEmpty(userName))
+                userSegment = new Regex(@"(?<=[\\/])" + Regex.Escape(userName) + @"(?=[\\/]|$|\s)",
                     RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
         }
 
-        private static string Scrub(string text)
+        public static LogScrubber ForCurrentUser()
         {
-            foreach ((string find, string replace) in scrubPairs)
+            var folders = new System.Collections.Generic.List<(string, string)>
+            {
+                (Path.GetTempPath(), "%TEMP%"),
+                (Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "%LOCALAPPDATA%"),
+                (Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "%APPDATA%"),
+                (Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "%USERPROFILE%"),
+            };
+            return new LogScrubber(folders, Environment.MachineName, Environment.UserName);
+        }
+
+        public string Scrub(string text)
+        {
+            foreach ((string find, string replace) in pairs)
                 text = Replace(text, find, replace);
-            if (scrubMachine != null)
-                text = scrubMachine.Replace(text, "<machine>");
-            return scrubUserSegment == null ? text : scrubUserSegment.Replace(text, "<user>");
+            if (machine != null)
+                text = machine.Replace(text, "<machine>");
+            return userSegment == null ? text : userSegment.Replace(text, "<user>");
         }
 
         private static string Replace(string text, string find, string replace)

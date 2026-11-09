@@ -33,6 +33,8 @@ for the full model.
   anywhere else.
 - Installs no hooks and injects nothing into other processes, including Explorer and games.
 - Writes only to its own folder (or `%LocalAppData%\BandBar`), never to the registry or other programs' files.
+- Starts another program only when the user picks a menu item, and only fixed targets (its own settings file in
+  the user's editor, its own folder in File Explorer); never elevated.
 - Logs mask user names, profile paths and the computer name.
 
 ## Verifying a download
@@ -40,7 +42,7 @@ for the full model.
 Every release publishes `SHA256SUMS.txt`. In PowerShell:
 
 ```powershell
-Get-FileHash .\BandBar-Setup-0.1.5.exe -Algorithm SHA256
+Get-FileHash .\BandBar-Setup-0.2.0.exe -Algorithm SHA256
 ```
 
 Compare the result with the line for that file in `SHA256SUMS.txt`. Releases are built by GitHub Actions from the

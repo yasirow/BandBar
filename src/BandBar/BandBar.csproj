@@ -10,7 +10,7 @@
     <ApplicationIcon>BandBar.ico</ApplicationIcon>
     <!-- NetLimiter.dll and NLInterop.dll are AMD64-only (docs/DESIGN.md). -->
     <PlatformTarget>x64</PlatformTarget>
-    <Version>0.1.5</Version>
+    <Version>0.2.0</Version>
     <Product>BandBar</Product>
     <Description>Live NetLimiter upload/download speed on the Windows taskbar (unofficial, not affiliated with Locktime Software)</Description>
     <Copyright>BandBar contributors</Copyright>
@@ -25,6 +25,11 @@
   <ItemGroup>
     <Reference Include="System.ServiceModel" />
     <Reference Include="System.Windows.Forms" />
+  </ItemGroup>
+
+  <!-- Unit tests (tests/BandBar.Tests) exercise internal types; this adds an attribute, nothing else. -->
+  <ItemGroup>
+    <InternalsVisibleTo Include="BandBar.Tests" />
   </ItemGroup>
 
   <!--
@@ -75,7 +80,7 @@
   <Target Name="VerifyOutputIsSingleExe" AfterTargets="Build">
     <ItemGroup>
       <_UnexpectedOutput Include="$(OutDir)**\*"
-                         Exclude="$(OutDir)$(TargetFileName);$(OutDir)$(TargetFileName).config;$(OutDir)$(TargetName).pdb;$(OutDir)settings.json;$(OutDir)bandbar.log;$(OutDir)bandbar.log.1" />
+                         Exclude="$(OutDir)$(TargetFileName);$(OutDir)$(TargetFileName).config;$(OutDir)$(TargetName).pdb;$(OutDir)settings.json;$(OutDir)settings.json.tmp;$(OutDir)bandbar.log;$(OutDir)bandbar.log.1" />
     </ItemGroup>
     <Error Condition="'@(_UnexpectedOutput)' != ''"
            Text="Build output must contain only $(TargetFileName); unexpected: @(_UnexpectedOutput->'%(Filename)%(Extension)')" />

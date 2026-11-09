@@ -9,6 +9,10 @@ namespace BandBar
         private static readonly bool Tr = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "tr";
 
         public static string Exit => Tr ? "Çıkış" : "Exit";
+        public static string ResetPosition => Tr ? "Konumu sıfırla" : "Reset position";
+        public static string OpenSettings => Tr ? "Ayar dosyasını aç" : "Open settings file";
+        public static string OpenLogFolder => Tr ? "Log klasörünü aç" : "Open log folder";
+        public static string DragHint => Tr ? "Taşımak için sürükleyin, menü için sağ tıklayın" : "Drag to move, right-click for the menu";
         public static string Zone => "Zone";
         public static string Elevated => Tr ? "Yönetici olarak çalışıyor (gerekli değil)" : "Running as administrator (not needed)";
 

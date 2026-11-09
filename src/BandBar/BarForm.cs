@@ -1,6 +1,7 @@
 using System;
 using System.Drawing;
 using System.Drawing.Imaging;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
@@ -21,38 +22,64 @@ namespace BandBar
         private const int AppBarCallbackMessage = WM_APP + 1;
         private const int TrayGapDip = 4;
         private const int FallbackOffsetDip = 220;
+        private const string AnchorOffsetKey = "anchorOffsetDip";
         // After a shell event, check about once per frame (the Windows timer resolution, ~16 ms) for ~600 ms whether
         // the taskbar has raised itself over the bar.
         private const int ZOrderCheckIntervalMs = 16;
         private const int ZOrderCheckCount = 38;
+        // settings.json is read again this long after the last change notification; editors write in several steps.
+        private const int SettingsReloadDelayMs = 300;
+        private const int SettingsReloadRetries = 3;
         private static readonly Color InactiveArrowColor = Color.FromArgb(0x8A, 0x8A, 0x8A);
         // Invisible, but keeps every pixel of the bar clickable; fully transparent pixels pass clicks through.
         private static readonly Color HitTestableClear = Color.FromArgb(1, 0, 0, 0);
 
-        private readonly Settings settings;
         private readonly NlMonitor monitor;
         private readonly ToolTip toolTip;
         private readonly ContextMenu menu;
+        private readonly MenuItem resetPositionItem;
+        private readonly MenuItem openSettingsItem;
+        private readonly MenuItem openLogFolderItem;
         private readonly Timer repositionTimer;
         private readonly Timer zOrderTimer;
+        private readonly Timer settingsReloadTimer;
         private readonly uint taskbarCreatedMessage;
-        // Referenced for the hook's lifetime: native code calls it, so the GC must not collect it.
+        // Referenced for the hooks' lifetime: native code calls them, so the GC must not collect them.
         private readonly WinEventProc shellEventProc;
+        private readonly WinEventProc taskbarLocationProc;
 
+        private Settings settings;
         private BarLayout layout;
+        private FileSystemWatcher settingsWatcher;
+        private int settingsReloadAttempts;
         private IntPtr appBarHandle;
         private IntPtr shellEventHook;
+        private IntPtr taskbarLocationHook;
         private IntPtr taskbarWindow;
+        private TaskbarInfo? currentTaskbar;
         private int zOrderChecksLeft;
+        private readonly System.Diagnostics.Stopwatch zOrderClock = new System.Diagnostics.Stopwatch();
+        private string zOrderReason = "start-up";
+        private int zOrderLogged;
         private IntPtr notificationArea;
         private Rectangle lastNotificationArea;
         private bool started;
+        // Set once WinForms has shown the window; hiding it before that would be undone by the first Show.
+        private bool ready;
+        private bool placed;
+        private bool shown = true;
         private bool fullscreen;
+        private bool autoHide;
+        private bool hiddenWithTaskbar;
         private bool sessionLocked;
-        private bool taskbarMissingLogged;
+        private bool dragArmed;
+        private bool dragging;
+        private Point dragStartCursor;
+        private Point dragStartLocation;
+        private TaskbarInfo dragTaskbar;
         private Reading reading = Reading.Connecting;
-        private string upText = "…";
-        private string downText = "…";
+        private SpeedText upText = SpeedText.Status("…");
+        private SpeedText downText = SpeedText.Status("…");
         private string toolTipText;
         private Color textColor;
 
@@ -69,7 +96,24 @@ namespace BandBar
 
             taskbarCreatedMessage = RegisterWindowMessage("TaskbarCreated");
             toolTip = new ToolTip { ShowAlways = true, InitialDelay = 400, AutoPopDelay = 10000 };
-            menu = new ContextMenu(new[] { new MenuItem(Strings.Exit, (s, e) => Close()) });
+
+            resetPositionItem = new MenuItem(Strings.ResetPosition, (s, e) => ResetPosition());
+            openSettingsItem = new MenuItem(Strings.OpenSettings, (s, e) => Launcher.OpenSettingsFile(AppPaths.DataDir));
+            openLogFolderItem = new MenuItem(Strings.OpenLogFolder, (s, e) => Launcher.OpenLogFolder(AppPaths.DataDir));
+            menu = new ContextMenu(new[]
+            {
+                resetPositionItem,
+                new MenuItem("-"),
+                openSettingsItem,
+                openLogFolderItem,
+                new MenuItem("-"),
+                new MenuItem(Strings.Exit, (s, e) => Close()),
+            });
+            menu.Popup += (s, e) =>
+            {
+                resetPositionItem.Enabled = this.settings.AnchorOffsetDip.HasValue;
+                openSettingsItem.Enabled = openLogFolderItem.Enabled = AppPaths.DataDir != null;
+            };
 
             // Coalesces bursts of shell notifications into one reposition; not a polling timer.
             repositionTimer = new Timer { Interval = 100 };
@@ -86,10 +130,22 @@ namespace BandBar
             {
                 RaiseIfCoveredByTaskbar();
                 if (--zOrderChecksLeft <= 0)
+                {
                     zOrderTimer.Stop();
+                    LogIfStillCovered();
+                }
+            };
+
+            // One-shot, started by a change notification for settings.json; never a standing poll.
+            settingsReloadTimer = new Timer { Interval = SettingsReloadDelayMs };
+            settingsReloadTimer.Tick += (s, e) =>
+            {
+                settingsReloadTimer.Stop();
+                ReloadSettings();
             };
 
             shellEventProc = OnShellEvent;
+            taskbarLocationProc = OnTaskbarLocationChanged;
             textColor = settings.ResolveTextColor();
             monitor = new NlMonitor(settings.ZoneFilterId, PostReading);
         }
@@ -128,8 +184,16 @@ namespace BandBar
                 if (shellEventHook == IntPtr.Zero)
                     Log.Warn("Shell event notifications unavailable; the taskbar may cover the bar after a click");
 
+                StartSettingsWatcher();
                 monitor.Start();
             }
+        }
+
+        protected override void OnShown(EventArgs e)
+        {
+            base.OnShown(e);
+            ready = true;
+            UpdateAutoHide(); // may hide the bar at once, so only now that the window is shown
         }
 
         protected override void OnHandleDestroyed(EventArgs e)
@@ -146,8 +210,11 @@ namespace BandBar
                 UnhookWinEvent(shellEventHook);
                 shellEventHook = IntPtr.Zero;
             }
+            RemoveTaskbarLocationHook();
+            StopSettingsWatcher();
             repositionTimer.Stop();
             zOrderTimer.Stop();
+            settingsReloadTimer.Stop();
             monitor.Dispose();
             base.OnFormClosed(e);
         }
@@ -157,8 +224,10 @@ namespace BandBar
             if (disposing)
             {
                 monitor.Dispose();
+                StopSettingsWatcher();
                 repositionTimer.Dispose();
                 zOrderTimer.Dispose();
+                settingsReloadTimer.Dispose();
                 toolTip.Dispose();
                 menu.Dispose();
                 layout?.Dispose();
@@ -197,23 +266,85 @@ namespace BandBar
 
             if (taskbarCreatedMessage != 0 && m.Msg == (int)taskbarCreatedMessage)
             {
-                // Explorer restarted: the old AppBar registration and window handles are gone with it.
+                // Explorer restarted: the old AppBar registration, window handles and taskbar thread are gone with it.
                 Log.Info("Taskbar recreated; registering again");
                 appBarHandle = IntPtr.Zero;
+                RemoveTaskbarLocationHook();
                 taskbarWindow = IntPtr.Zero;
+                currentTaskbar = null; // the new taskbar may be elsewhere; judge it by its own rectangle
                 notificationArea = IntPtr.Zero;
                 RegisterAppBar();
                 SetFullscreen(false);
+                UpdateAutoHide();
                 ScheduleReposition();
             }
 
             base.WndProc(ref m);
         }
 
+        // ---- Mouse: drag along the taskbar (docs/DESIGN.md §5.1), menu on right-click ----
+
+        protected override void OnMouseDown(MouseEventArgs e)
+        {
+            base.OnMouseDown(e);
+            if (e.Button != MouseButtons.Left || !shown || currentTaskbar == null)
+                return;
+            // WinForms captures the mouse for our own window until the button is released; no hook is involved.
+            dragArmed = true;
+            dragging = false;
+            dragTaskbar = currentTaskbar.Value;
+            dragStartCursor = Cursor.Position;
+            dragStartLocation = Location;
+        }
+
+        protected override void OnMouseMove(MouseEventArgs e)
+        {
+            base.OnMouseMove(e);
+            if (!dragArmed)
+                return;
+            if ((Control.MouseButtons & MouseButtons.Left) == 0)
+            {
+                CancelDrag();
+                return;
+            }
+
+            Point cursor = Cursor.Position;
+            if (!dragging)
+            {
+                // Within the system drag threshold it is still a click.
+                Size threshold = SystemInformation.DragSize;
+                if (Math.Abs(cursor.X - dragStartCursor.X) <= threshold.Width / 2
+                    && Math.Abs(cursor.Y - dragStartCursor.Y) <= threshold.Height / 2)
+                    return;
+                dragging = true;
+                toolTip.Hide(this);
+                toolTip.Active = false;
+                repositionTimer.Stop();
+            }
+
+            Cursor.Current = dragTaskbar.IsVertical ? Cursors.SizeNS : Cursors.SizeWE;
+            Rectangle tb = dragTaskbar.Bounds;
+            Point location = dragStartLocation;
+            if (dragTaskbar.IsVertical)
+                location.Y = Clamp(dragStartLocation.Y + cursor.Y - dragStartCursor.Y, tb.Top, tb.Bottom - Height);
+            else
+                location.X = Clamp(dragStartLocation.X + cursor.X - dragStartCursor.X, tb.Left, tb.Right - Width);
+            if (location != Location)
+                Location = location;
+        }
+
         protected override void OnMouseUp(MouseEventArgs e)
         {
             base.OnMouseUp(e);
-            if (e.Button != MouseButtons.Right)
+            if (e.Button == MouseButtons.Left)
+            {
+                bool moved = dragging;
+                EndDrag();
+                if (moved)
+                    SaveDraggedPosition();
+                return;
+            }
+            if (e.Button != MouseButtons.Right || dragArmed)
                 return;
 
             toolTip.Hide(this);
@@ -221,6 +352,55 @@ namespace BandBar
             SetForegroundWindow(Handle);
             menu.Show(this, e.Location);
         }
+
+        protected override void OnMouseCaptureChanged(EventArgs e)
+        {
+            base.OnMouseCaptureChanged(e);
+            // Capture taken away before the button was released (another window took it): put the bar back.
+            if (dragArmed && !Capture)
+                CancelDrag();
+        }
+
+        private void EndDrag()
+        {
+            dragArmed = false;
+            dragging = false;
+            toolTip.Active = true;
+            Cursor.Current = Cursors.Default;
+        }
+
+        private void CancelDrag()
+        {
+            bool moved = dragging;
+            EndDrag();
+            if (moved)
+                ScheduleReposition();
+        }
+
+        private void SaveDraggedPosition()
+        {
+            Rectangle tb = dragTaskbar.Bounds;
+            int fromEnd = dragTaskbar.IsVertical ? tb.Bottom - Bounds.Bottom : tb.Right - Bounds.Right;
+            int offsetDip = Math.Max(0, (int)Math.Round(fromEnd * 96.0 / dragTaskbar.Dpi));
+            settings.AnchorOffsetDip = offsetDip;
+            if (SettingsFile.SetNumber(AppPaths.DataDir, AnchorOffsetKey, offsetDip))
+                Log.Info("Position saved: " + offsetDip + " DIP from the end of the taskbar");
+            else
+                Log.Warn("The new position could not be saved; it applies until BandBar exits");
+            Reposition();
+        }
+
+        private void ResetPosition()
+        {
+            settings.AnchorOffsetDip = null;
+            if (SettingsFile.SetNumber(AppPaths.DataDir, AnchorOffsetKey, null))
+                Log.Info("Position reset to the default");
+            else
+                Log.Warn("The position reset could not be saved; it applies until BandBar exits");
+            Reposition();
+        }
+
+        // ---- Shell notifications ----
 
         private void RegisterAppBar()
         {
@@ -253,12 +433,17 @@ namespace BandBar
                 case ABN_FULLSCREENAPP:
                     SetFullscreen(lParam != IntPtr.Zero);
                     break;
-                case ABN_POSCHANGED:
                 case ABN_STATECHANGE:
+                    UpdateAutoHide();
+                    ScheduleReposition();
+                    break;
+                case ABN_POSCHANGED:
                     ScheduleReposition();
                     break;
             }
         }
+
+        // ---- Visibility: full screen and the auto-hiding taskbar (docs/DESIGN.md §5.2, §6.1) ----
 
         private void SetFullscreen(bool value)
         {
@@ -268,26 +453,118 @@ namespace BandBar
                 return;
 
             fullscreen = value;
-            if (value)
+            Log.Info(value ? "Full-screen application opened; hiding" : "Full-screen application closed");
+            ApplyVisibility();
+        }
+
+        private void ApplyVisibility()
+        {
+            bool show = !fullscreen && !hiddenWithTaskbar;
+            if (show != shown)
             {
-                Log.Info("Full-screen application opened; hiding");
-                toolTip.Hide(this);
-                zOrderTimer.Stop();
-                // Hidden and out of the topmost band: nothing of ours overlaps the game (docs/DESIGN.md).
-                SetWindowPos(Handle, HWND_NOTOPMOST, 0, 0, 0, 0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_HIDEWINDOW);
-            }
-            else
-            {
-                Log.Info("Full-screen application closed; showing");
-                Reposition();
-                SetWindowPos(Handle, HWND_TOPMOST, 0, 0, 0, 0,
-                    SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
-                // The taskbar shows itself again at about the same time and may land on top of us.
-                WatchZOrder();
+                shown = show;
+                if (!show)
+                {
+                    toolTip.Hide(this);
+                    zOrderTimer.Stop();
+                    CancelDrag();
+                    // Hidden and out of the topmost band: nothing of ours overlaps a game (docs/DESIGN.md §6.1).
+                    SetWindowPos(Handle, HWND_NOTOPMOST, 0, 0, 0, 0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_HIDEWINDOW);
+                }
+                else
+                {
+                    Reposition();
+                    if (!shown)
+                        return; // the taskbar check inside Reposition hid the bar again; stay hidden
+                    SetWindowPos(Handle, HWND_TOPMOST, 0, 0, 0, 0,
+                        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_SHOWWINDOW);
+                    // The taskbar shows itself at about the same time and may land on top of us.
+                    WatchZOrder("the bar was shown again");
+                }
             }
             UpdatePaused();
         }
+
+        private void UpdateAutoHide()
+        {
+            if (!ready || !IsHandleCreated || IsDisposed)
+                return;
+            bool value = Taskbar.IsAutoHide(Handle);
+            if (value != autoHide)
+            {
+                autoHide = value;
+                Log.Info(value ? "The taskbar auto-hides" : "The taskbar no longer auto-hides");
+            }
+
+            if (autoHide)
+                InstallTaskbarLocationHook();
+            else
+                RemoveTaskbarLocationHook();
+            UpdateTaskbarShown();
+        }
+
+        // Only while the taskbar auto-hides, and only for the taskbar's own thread: the shell does not report the
+        // taskbar sliding in or out (docs/DESIGN.md §5.2). Out of context, like the shell event range.
+        private void InstallTaskbarLocationHook()
+        {
+            IntPtr taskbar = GetTaskbarWindow();
+            if (taskbarLocationHook != IntPtr.Zero || taskbar == IntPtr.Zero)
+                return;
+            uint thread = GetWindowThreadProcessId(taskbar, out uint process);
+            if (thread != 0)
+                taskbarLocationHook = SetWinEventHook(EVENT_OBJECT_LOCATIONCHANGE, EVENT_OBJECT_LOCATIONCHANGE, IntPtr.Zero,
+                    taskbarLocationProc, process, thread, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+            if (taskbarLocationHook == IntPtr.Zero)
+                Log.Warn("Taskbar movement notifications unavailable; the bar stays visible while the taskbar is hidden");
+        }
+
+        private void RemoveTaskbarLocationHook()
+        {
+            if (taskbarLocationHook == IntPtr.Zero)
+                return;
+            UnhookWinEvent(taskbarLocationHook);
+            taskbarLocationHook = IntPtr.Zero;
+        }
+
+        private void OnTaskbarLocationChanged(IntPtr hook, uint eventType, IntPtr hwnd, int idObject, int idChild,
+                                              uint eventThread, uint eventTime)
+        {
+            try
+            {
+                if (IsDisposed || hwnd == IntPtr.Zero || hwnd != taskbarWindow || idObject != OBJID_WINDOW)
+                    return; // other windows of the taskbar's thread
+                UpdateTaskbarShown();
+                RaiseIfCoveredByTaskbar();
+            }
+            catch (Exception ex)
+            {
+                // Called from native code: never let an exception escape.
+                Log.Debug("Taskbar location handler failed", ex);
+            }
+        }
+
+        private void UpdateTaskbarShown()
+        {
+            bool hide = false;
+            // Without the location notification the bar could not come back, so it then never hides with the taskbar.
+            if (autoHide && taskbarLocationHook != IntPtr.Zero && settings.FollowAutoHideTaskbar)
+            {
+                TaskbarInfo info;
+                if (currentTaskbar.HasValue)
+                    info = currentTaskbar.Value;
+                else if (!Taskbar.TryGet(Handle, out info))
+                    return;
+                hide = !Taskbar.IsFullyShown(GetTaskbarWindow(), info);
+            }
+            if (hide == hiddenWithTaskbar)
+                return;
+            hiddenWithTaskbar = hide;
+            Log.Debug(hide ? "Taskbar slid out; hiding" : "Taskbar slid in; showing");
+            ApplyVisibility();
+        }
+
+        // ---- Window order (docs/DESIGN.md §6.2) ----
 
         // Foreground, menu and mouse-capture events from any process, delivered out of context through our message
         // loop. Pressing a taskbar button raises a capture event at once; the foreground event covers the rest.
@@ -296,19 +573,22 @@ namespace BandBar
         {
             try
             {
-                if (fullscreen || IsDisposed)
+                if (!shown || IsDisposed)
                     return;
                 if (eventType == EVENT_SYSTEM_FOREGROUND)
                 {
-                    if (CoversItsMonitor(hwnd))
-                        return; // a full-screen app is coming forward; ABN_FULLSCREENAPP hides the bar instead
+                    // A full-screen app is coming forward; ABN_FULLSCREENAPP hides the bar instead. The desktop also
+                    // covers the monitor, but clicking it (for example to close Start) is when the taskbar raises itself.
+                    if (CoversItsMonitor(hwnd) && hwnd != GetShellWindow())
+                        return;
                 }
                 else if (!BelongsToTaskbar(hwnd))
                 {
                     return; // menu and mouse-capture events matter only when they happen on the taskbar
                 }
+                WatchZOrder(eventType == EVENT_SYSTEM_FOREGROUND ? "a foreground change"
+                          : eventType <= EVENT_SYSTEM_MENUPOPUPEND ? "a taskbar menu event" : "a taskbar mouse capture");
                 RaiseIfCoveredByTaskbar();
-                WatchZOrder();
             }
             catch (Exception ex)
             {
@@ -317,21 +597,45 @@ namespace BandBar
             }
         }
 
-        private void WatchZOrder()
+        private void WatchZOrder(string reason)
         {
             zOrderChecksLeft = ZOrderCheckCount;
+            zOrderReason = reason;
+            zOrderLogged = 0;
+            zOrderClock.Restart();
             zOrderTimer.Stop();
             zOrderTimer.Start();
         }
 
         private void RaiseIfCoveredByTaskbar()
         {
-            if (fullscreen || !IsHandleCreated || IsDisposed || !IsCoveredByTaskbar())
+            if (!shown || !IsHandleCreated || IsDisposed || !IsCoveredByTaskbar())
                 return;
             // Directly above the taskbar rather than at the very top, so Start, jump lists and tooltips stay above us.
             IntPtr above = GetWindow(taskbarWindow, GW_HWNDPREV);
             SetWindowPos(Handle, above == IntPtr.Zero ? HWND_TOPMOST : above, 0, 0, 0, 0,
                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+
+            // Diagnostics only (logLevel "debug"): when the taskbar got above us, and whether moving up helped.
+            if (Log.IsDebugEnabled)
+            {
+                bool stillCovered = IsCoveredByTaskbar();
+                int state = stillCovered ? 2 : 1;
+                if (state != zOrderLogged)
+                {
+                    zOrderLogged = state;
+                    Log.Debug("Taskbar above the bar " + zOrderClock.ElapsedMilliseconds + " ms after " + zOrderReason
+                              + (stillCovered ? "; still above after moving up (the taskbar is in a higher band)" : "; moved up"));
+                }
+            }
+        }
+
+        // Diagnostics only: the window of checks after an event ended with the taskbar still above the bar.
+        private void LogIfStillCovered()
+        {
+            if (Log.IsDebugEnabled && shown && IsCoveredByTaskbar())
+                Log.Debug("Taskbar still above the bar when checking stopped, " + zOrderClock.ElapsedMilliseconds
+                          + " ms after " + zOrderReason);
         }
 
         private IntPtr GetTaskbarWindow()
@@ -397,7 +701,9 @@ namespace BandBar
             }
         }
 
-        private void UpdatePaused() => monitor.SetPaused(fullscreen || sessionLocked);
+        private void UpdatePaused() => monitor.SetPaused(!shown || sessionLocked);
+
+        // ---- Placement (docs/DESIGN.md §5) ----
 
         private void ScheduleReposition()
         {
@@ -407,27 +713,39 @@ namespace BandBar
 
         private void Reposition()
         {
-            if (IsDisposed || !IsHandleCreated)
+            if (IsDisposed || !IsHandleCreated || dragging)
                 return;
 
-            if (!Taskbar.TryGet(Handle, out TaskbarInfo taskbar))
+            if (Taskbar.TryGet(Handle, out TaskbarInfo taskbar))
             {
-                if (!taskbarMissingLogged)
-                {
-                    taskbarMissingLogged = true;
-                    Log.Warn("Taskbar position unavailable; using the bottom of the primary screen");
-                }
+                bool changed = !currentTaskbar.HasValue || !currentTaskbar.Value.Equals(taskbar);
+                currentTaskbar = taskbar;
+                if (taskbar.AutoHide != autoHide)
+                    UpdateAutoHide();
+                else if (changed && autoHide)
+                    UpdateTaskbarShown(); // location events may have been judged against the old rectangle
+            }
+            else if (placed)
+            {
+                // Explorer is restarting: stay where we are and wait for TaskbarCreated.
+                Log.Info("Taskbar position unavailable; keeping the current position");
+                notificationArea = IntPtr.Zero;
+                return;
+            }
+            else
+            {
+                Log.Warn("Taskbar position unavailable; using the bottom of the primary screen");
                 Rectangle screen = Screen.PrimaryScreen.Bounds;
                 taskbar = new TaskbarInfo(new Rectangle(screen.Left, screen.Bottom - 48, screen.Width, 48), TaskbarEdge.Bottom, 96);
             }
 
             Rectangle tb = taskbar.Bounds;
             int thickness = taskbar.IsVertical ? tb.Width : tb.Height;
-            if (layout == null || layout.Dpi != taskbar.Dpi || layout.MaxHeight != thickness)
+            if (layout == null || !layout.Fits(taskbar.Dpi, taskbar.IsVertical, thickness))
             {
                 layout?.Dispose();
-                layout = new BarLayout(taskbar.Dpi, thickness, SpeedFormat.WidestSamples(settings)
-                    .Concat(Enum.GetValues(typeof(LinkStatus)).Cast<LinkStatus>().Select(Strings.Short)));
+                layout = new BarLayout(taskbar.Dpi, taskbar.IsVertical, thickness, SpeedFormat.WidestNumber(settings),
+                    SpeedFormat.Units, Enum.GetValues(typeof(LinkStatus)).Cast<LinkStatus>().Select(Strings.Short));
             }
 
             Size size = layout.Size;
@@ -453,8 +771,9 @@ namespace BandBar
             {
                 Bounds = target;
                 Log.Debug("Positioned on the " + taskbar.Edge + " taskbar " + tb + " at dpi " + taskbar.Dpi
-                          + ": target " + target + ", actual " + Bounds);
+                          + (layout.Stacked ? " (stacked)" : "") + ": target " + target + ", actual " + Bounds);
             }
+            placed |= currentTaskbar.HasValue;
             RaiseIfCoveredByTaskbar();
             Render();
         }
@@ -471,10 +790,14 @@ namespace BandBar
 
             if (notificationArea == IntPtr.Zero)
                 notificationArea = Taskbar.FindNotificationArea();
-            if (Taskbar.TryGetWindowBounds(notificationArea, out Rectangle tray) && tb.Contains(tray))
+            if (Taskbar.TryGetWindowBounds(notificationArea, out Rectangle tray))
             {
-                lastNotificationArea = tray;
-                return (taskbar.IsVertical ? tray.Top : tray.Left) - metrics.Scale(TrayGapDip);
+                Rectangle shownTray = WhereShown(tray, taskbar);
+                if (tb.Contains(shownTray))
+                {
+                    lastNotificationArea = tray; // as FollowNotificationArea will read it
+                    return (taskbar.IsVertical ? shownTray.Top : shownTray.Left) - metrics.Scale(TrayGapDip);
+                }
             }
 
             notificationArea = IntPtr.Zero;
@@ -482,16 +805,119 @@ namespace BandBar
             return (taskbar.IsVertical ? tb.Bottom : tb.Right) - metrics.Scale(FallbackOffsetDip);
         }
 
+        // While an auto-hiding taskbar is hidden or sliding, its notification area is off-screen with it: use the place
+        // the notification area will have once the taskbar is shown.
+        private Rectangle WhereShown(Rectangle tray, TaskbarInfo taskbar)
+        {
+            IntPtr window = GetTaskbarWindow();
+            if (Taskbar.IsFullyShown(window, taskbar) || !Taskbar.TryGetWindowBounds(window, out Rectangle now))
+                return tray;
+            if (taskbar.IsVertical)
+                tray.Offset(taskbar.Bounds.X - now.X, 0);
+            else
+                tray.Offset(0, taskbar.Bounds.Y - now.Y);
+            return tray;
+        }
+
         // The shell sends no notification when the notification area grows (a new tray icon, a wider clock), so in
         // the default position its rectangle is compared on each reading the bar already receives once a second.
         // One GetWindowRect, no extra timer.
         private void FollowNotificationArea()
         {
-            if (settings.AnchorOffsetDip.HasValue || notificationArea == IntPtr.Zero || fullscreen)
+            if (settings.AnchorOffsetDip.HasValue || notificationArea == IntPtr.Zero || !shown || dragging)
                 return;
             if (!Taskbar.TryGetWindowBounds(notificationArea, out Rectangle tray) || tray != lastNotificationArea)
                 ScheduleReposition();
         }
+
+        private static int Clamp(int value, int min, int max) => Math.Max(min, Math.Min(max, value));
+
+        // ---- settings.json, applied without a restart (docs/DESIGN.md §8.1) ----
+
+        private void StartSettingsWatcher()
+        {
+            string dir = AppPaths.DataDir;
+            if (dir == null)
+                return;
+            try
+            {
+                // Our own folder, our own file name only; events arrive on this (the UI) thread.
+                settingsWatcher = new FileSystemWatcher(dir, AppPaths.SettingsFileName)
+                {
+                    NotifyFilter = NotifyFilters.FileName | NotifyFilters.LastWrite | NotifyFilters.Size | NotifyFilters.CreationTime,
+                    IncludeSubdirectories = false,
+                    SynchronizingObject = this,
+                };
+                settingsWatcher.Changed += OnSettingsFileChanged;
+                settingsWatcher.Created += OnSettingsFileChanged;
+                settingsWatcher.Deleted += OnSettingsFileChanged;
+                settingsWatcher.Renamed += OnSettingsFileChanged;
+                settingsWatcher.Error += (s, e) =>
+                    Log.Warn("Watching settings.json stopped; later changes apply after a restart", e.GetException());
+                settingsWatcher.EnableRaisingEvents = true;
+            }
+            catch (Exception ex) when (ex is ArgumentException || ex is IOException || ex is UnauthorizedAccessException
+                                       || ex is PlatformNotSupportedException)
+            {
+                Log.Warn("settings.json changes will apply after a restart", ex);
+                StopSettingsWatcher();
+            }
+        }
+
+        private void StopSettingsWatcher()
+        {
+            if (settingsWatcher == null)
+                return;
+            settingsWatcher.EnableRaisingEvents = false;
+            settingsWatcher.Dispose();
+            settingsWatcher = null;
+        }
+
+        private void OnSettingsFileChanged(object sender, FileSystemEventArgs e)
+        {
+            settingsReloadAttempts = 0;
+            settingsReloadTimer.Stop();
+            settingsReloadTimer.Start();
+        }
+
+        private void ReloadSettings()
+        {
+            switch (Settings.TryLoad(AppPaths.DataDir, out Settings fresh))
+            {
+                case SettingsLoad.Loaded:
+                    ApplySettings(fresh);
+                    break;
+                case SettingsLoad.Unreadable when settingsReloadAttempts++ < SettingsReloadRetries:
+                    settingsReloadTimer.Start(); // still being written; try again shortly
+                    break;
+                default:
+                    Log.Warn("Keeping the current settings");
+                    break;
+            }
+        }
+
+        private void ApplySettings(Settings fresh)
+        {
+            Settings old = settings;
+            settings = fresh;
+            Log.SetLevel(fresh.LogLevel);
+            if (fresh.ZoneFilterId != old.ZoneFilterId)
+                monitor.SetZone(fresh.ZoneFilterId);
+            textColor = fresh.ResolveTextColor();
+
+            // Units and decimals decide the bar's width: measure again.
+            layout?.Dispose();
+            layout = null;
+            (upText, downText) = TextsFor(reading);
+
+            if (fullscreen && !fresh.HideOnFullscreen)
+                SetFullscreen(false);
+            UpdateTaskbarShown();
+            Reposition();
+            Log.Info("Settings applied");
+        }
+
+        // ---- Drawing and readings ----
 
         private void Render()
         {
@@ -540,26 +966,25 @@ namespace BandBar
             }
         }
 
-        private void ApplyReading(Reading r)
+        private (SpeedText Up, SpeedText Down) TextsFor(Reading r)
         {
-            string up, down;
             switch (r.Status)
             {
                 case LinkStatus.Connected:
-                    up = SpeedFormat.Format(r.Up, settings);
-                    down = SpeedFormat.Format(r.Down, settings);
-                    break;
+                    return (SpeedFormat.Format(r.Up, settings), SpeedFormat.Format(r.Down, settings));
                 case LinkStatus.Connecting:
                 case LinkStatus.NoService:
-                    up = down = Strings.Short(r.Status);
-                    break;
+                    SpeedText status = SpeedText.Status(Strings.Short(r.Status));
+                    return (status, status);
                 default:
-                    up = Strings.Short(r.Status);
-                    down = "";
-                    break;
+                    return (SpeedText.Status(Strings.Short(r.Status)), SpeedText.Status(""));
             }
+        }
 
-            bool changed = up != upText || down != downText || r.Status != reading.Status;
+        private void ApplyReading(Reading r)
+        {
+            (SpeedText up, SpeedText down) = TextsFor(r);
+            bool changed = !up.Equals(upText) || !down.Equals(downText) || r.Status != reading.Status;
             reading = r;
             upText = up;
             downText = down;
@@ -581,6 +1006,7 @@ namespace BandBar
                 sb.Append('\n').Append(reading.Detail);
             if (Program.IsElevated)
                 sb.Append('\n').Append(Strings.Elevated);
+            sb.Append('\n').Append(Strings.DragHint);
 
             string text = sb.ToString();
             if (text != toolTipText)
