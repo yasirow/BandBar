@@ -96,7 +96,9 @@ once .NET Framework 4.8 is installed from Microsoft; the setup checks for it and
 > anyway**. To check that a file is exactly what the build produced, run
 > `Get-FileHash .\BandBar-Setup-x.y.z.exe -Algorithm SHA256` in PowerShell and compare the hash with
 > `SHA256SUMS.txt`. Every release is built by [GitHub Actions](https://github.com/yasirow/BandBar/actions) from
-> the tagged source code.
+> the tagged source code, and GitHub attests it: with the [GitHub CLI](https://cli.github.com/),
+> `gh attestation verify .\BandBar-Setup-x.y.z.exe --repo yasirow/BandBar` confirms that the file came from this
+> repository's release workflow.
 
 ## Update
 
@@ -122,7 +124,8 @@ For the portable version, exit the bar and delete its folder.
 
 ## Using it
 
-- **Hover** the bar for details: version, zone, connection status and NetLimiter version.
+- **Hover** the bar for details: version, zone, connection status, NetLimiter version and how much the zone has
+  transferred so far, as NetLimiter counts it.
 - **Drag** the bar with the left mouse button to move it along the taskbar. It stays where you drop it, also after
   a restart.
 - **Right-click** the bar for the menu:
@@ -162,6 +165,13 @@ only ever changes the position (`anchorOffsetDip`) when you drag the bar, and le
 The text colour follows your Windows taskbar (light or dark, or the text colour of a Windows contrast theme). If a
 taskbar tool paints its own colours and the text is hard to read, set `"theme": "dark"` (white text) or `"theme": "light"` (dark text). With an auto-hiding taskbar,
 `"followAutoHideTaskbar": false` keeps the bar visible at the screen edge instead of hiding it with the taskbar.
+
+To change the look — one line on a horizontal taskbar, Mbit/s instead of MB/s, another font or size, and half
+opacity while there is no traffic:
+
+```json
+{ "layout": "one-line", "unit": "bits", "fontFamily": "Consolas", "fontSize": 10, "dimWhenIdle": true }
+```
 
 To hide the bar while particular programs are in front (for example a game you play in a window), and to show or
 hide it with a hotkey:
@@ -269,7 +279,8 @@ install the SDK inside the repository folder, how to create the release packages
 Done: 0.2.0 — drag and remember the position, stacked layout for vertical taskbars, auto-hiding taskbars, settings
 applied without a restart. 0.3.0 — full screen per monitor and at start-up, program list, show/hide hotkey.
 0.4.0 — zone menu, Limiter/Blocker/Priorities states, Blocker alert, open NetLimiter. 0.5.0 — `WFP?` status,
-contrast themes, FAQ. 0.6.0 — the bar on other monitors' taskbars. See [CHANGELOG.md](CHANGELOG.md) for every
+contrast themes, FAQ. 0.6.0 — the bar on other monitors' taskbars. 0.7.0 — one-line layout, bit units, font
+settings, dimming when idle, totals in the tooltip, build provenance. See [CHANGELOG.md](CHANGELOG.md) for every
 release.
 
 ## Contributing

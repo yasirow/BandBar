@@ -116,6 +116,8 @@ foreach (FilterNode node in loader.Filters.Nodes)
   than 2 seconds counts as a lost connection. Typical cost: connecting ~0.3 s, each read 1–10 ms.
 - Reading stops completely while the bar is hidden for a full-screen application and while the session is locked.
 - The bar is redrawn only when the displayed text changes.
+- The same filter node also carries the zone's transferred totals (`Transferred.In` / `.Out`, as NetLimiter counts
+  them); the tooltip shows them. An installed API without the member only leaves them out.
 - With each reading the client's `IsBfeRunning` is read too. When Windows' Base Filtering Engine (the service behind
   the Windows Filtering Platform, WFP) is stopped, NetLimiter sees no traffic at all, so the bar shows `WFP?`
   instead of a misleading 0. An installed API without this member only skips the check.
@@ -179,9 +181,20 @@ because messages can contain paths.
 - **Stacked layout (left and right taskbars):** when the two-line layout is wider than a vertical taskbar, each
   value is split into its number and its unit on separate lines — four lines in total, the arrow beside the number
   — and the font is reduced (down to 7 pt) until the bar fits the taskbar's width.
+- **One line (optional):** `layout: "one-line"` puts both values side by side on a horizontal taskbar — upload
+  first — in a bar one line tall. Vertical taskbars always use two lines, or the stacked layout.
+- **Font (optional):** `fontFamily` and `fontSize` (6–16 pt) replace Segoe UI 9 pt. The size is where fitting
+  starts; the font still shrinks (down to 7 pt, or the chosen size if smaller) when the bar would not fit the taskbar.
+  A font that is not installed falls back to Segoe UI, with a log entry.
 - **Fixed width:** the text column is measured from the widest possible value, so the bar never resizes.
-- **Units:** B/s → KB/s → MB/s → GB/s, base 1024 (or 1000), one decimal by default. Values are truncated, never
-  rounded up. The decimal separator follows the Windows region settings.
+- **Units:** B/s → KB/s → MB/s → GB/s, base 1024 (or 1000), one decimal by default. With `unit: "bits"`:
+  bit/s → kbit/s → Mbit/s → Gbit/s, always in steps of 1000 as networks count (`unitBase` does not apply). Values are
+  truncated, never rounded up. The decimal separator follows the Windows region settings.
+- **Dimming when idle (optional):** with `dimWhenIdle: true`, after five readings in a row below 1 KB/s in both
+  directions the arrows and text are drawn at about half opacity, and the first faster reading brings them back. Never
+  during a Blocker alert or while a status is shown. The background keeps its alpha, so the bar stays clickable.
+- **Tooltip:** version, zone, link status, NetLimiter version, the zone's transferred totals, a Blocker alert if any,
+  and a hint on dragging and the menu.
 - **Menu:** a native Win32 menu (`TrackPopupMenuEx` via WinForms `ContextMenu`):
   - *Zone* ▸ the NetLimiter zones, the shown one ticked; choosing one saves `zoneFilterId` ([§8.1](#81-settingsjson)).
   - *Limiter*, *Blocker*, *Priorities*: greyed out, ticked when on — information only ([§3.4](#34-what-else-is-read-menu-and-blocker-alert)).
@@ -438,8 +451,13 @@ Optional. Read at start-up; ignored (with a log entry) if it is invalid or large
 | Key | Default | Meaning |
 |---|---|---|
 | `zoneFilterId` | `null` | NetLimiter filter ID of the zone to show; `null` = Internet zone. Set by the *Zone* menu |
-| `unitBase` | `1024` | `1024` or `1000` |
+| `unitBase` | `1024` | `1024` or `1000` (bytes only) |
+| `unit` | `"bytes"` | `"bytes"` (B/s, KB/s …) or `"bits"` (bit/s, kbit/s, Mbit/s …, always base 1000) |
 | `decimals` | `1` | 0–3 |
+| `layout` | `"two-line"` | `"two-line"` or `"one-line"` (horizontal taskbars; vertical ones always use two lines or the stacked layout) |
+| `fontFamily` | `"Segoe UI"` | An installed font; otherwise Segoe UI |
+| `fontSize` | `9` | 6–16 pt; reduced automatically when the bar would not fit the taskbar |
+| `dimWhenIdle` | `false` | Draw the bar at about half opacity while there is no traffic (below 1 KB/s both ways for 5 s) |
 | `theme` | `"auto"` | `"auto"` (follow the Windows taskbar), `"dark"` or `"light"` — the taskbar's colour, which decides the text colour |
 | `colors.upload` / `colors.download` | `"#E74C3C"` / `"#2ECC71"` | Arrow colours |
 | `colors.text` | `null` | `null` = from `theme` (`#FFFFFF` on a dark taskbar, `#1A1A1A` on a light one) |
@@ -492,7 +510,9 @@ attached to a public issue.
 - **Reproducibility and privacy:** `Deterministic`, `PathMap` and no PDB in Release, so no build-machine path or user
   name is embedded in the executable. Warnings are errors.
 - **CI:** GitHub-hosted `windows-2025` runners, actions pinned by commit SHA, read-only token except for the
-  release job.
+  release job. The release job may also mint an OIDC token and write attestations (`id-token`, `attestations`,
+  `artifact-metadata`), used only by GitHub's own `actions/attest` step.
+- **Code scanning:** GitHub's CodeQL default setup, switched on in the repository settings (no workflow file).
 
 ## 10. Packaging
 
@@ -519,6 +539,11 @@ folder and in `%LocalAppData%\BandBar`, then those folders if they are empty. No
 
 **Signing:** releases are not code-signed, so Windows SmartScreen may warn on first run. Instead, each release
 publishes SHA-256 checksums and is built by GitHub Actions from the tagged commit, with a public build log.
+
+**Build provenance:** the release workflow attests the setup and the ZIP with GitHub's `actions/attest` (SLSA build
+provenance, signed through Sigstore with the workflow's own identity; no personal certificate). Anyone can check
+that a downloaded file was built by this repository's release workflow:
+`gh attestation verify BandBar-Setup-x.y.z.exe --repo yasirow/BandBar`.
 
 ## 11. Known limitations
 

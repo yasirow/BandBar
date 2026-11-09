@@ -8,6 +8,27 @@ milestone is a minor release (`0.x.0`) and fixes in between are patch releases (
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-11-09
+
+### Added
+- **One-line layout:** `"layout": "one-line"` shows upload and download side by side on a horizontal taskbar, in a
+  bar one line tall. Vertical taskbars keep two lines (or the stacked layout).
+- **Bit units:** `"unit": "bits"` shows bit/s, kbit/s, Mbit/s and Gbit/s, always in steps of 1000 as network speeds
+  are usually given.
+- **Font:** `fontFamily` and `fontSize` (6–16 pt) replace Segoe UI 9 pt. The font still shrinks when the bar would
+  not fit the taskbar; a font that is not installed falls back to Segoe UI.
+- **Dimming when idle:** with `"dimWhenIdle": true`, the arrows and text fade to about half opacity after five
+  seconds below 1 KB/s in both directions, and come back with the first faster reading. Never during a Blocker alert;
+  the bar stays clickable.
+- **Totals in the tooltip:** how much the zone has transferred up and down, as NetLimiter counts it.
+- **Build provenance:** every release file is attested by GitHub (`actions/attest`); `gh attestation verify <file>
+  --repo yasirow/BandBar` confirms it was built by this repository's release workflow (README, SECURITY.md).
+
+### Security
+- The release job may now request an OIDC token and write attestations, for GitHub's own attestation step only. The
+  action is pinned by commit SHA like the others.
+- Repository code scanning uses GitHub's CodeQL default setup.
+
 ## [0.6.0] - 2026-11-09
 
 ### Added
@@ -253,7 +274,8 @@ Initial preview.
 - An auto-hiding taskbar is not supported yet.
 - If the app is started while a full-screen game is already running, it does not hide until that game closes.
 
-[Unreleased]: https://github.com/yasirow/BandBar/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/yasirow/BandBar/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/yasirow/BandBar/releases/tag/v0.7.0
 [0.6.0]: https://github.com/yasirow/BandBar/releases/tag/v0.6.0
 [0.5.0]: https://github.com/yasirow/BandBar/releases/tag/v0.5.0
 [0.4.0]: https://github.com/yasirow/BandBar/releases/tag/v0.4.0

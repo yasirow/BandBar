@@ -120,6 +120,8 @@ namespace BandBar
         private SpeedText downText = SpeedText.Status("…");
         private string toolTipText;
         private Color textColor;
+        private int idleReadings;
+        private bool dimmed;
 
         /// <summary>The host: the bar on the main taskbar.</summary>
         public BarForm(Settings settings) : this(settings, null, IntPtr.Zero)
@@ -1170,8 +1172,9 @@ namespace BandBar
             {
                 layout?.Dispose();
                 layout = new BarLayout(taskbar.Dpi, taskbar.IsVertical, thickness, SpeedFormat.WidestNumber(settings),
-                    SpeedFormat.Units, Enum.GetValues(typeof(LinkStatus)).Cast<LinkStatus>().Select(Strings.Short)
-                                                .Concat(new[] { Strings.FilteringOffShort }));
+                    SpeedFormat.UnitsFor(settings), Enum.GetValues(typeof(LinkStatus)).Cast<LinkStatus>().Select(Strings.Short)
+                                                .Concat(new[] { Strings.FilteringOffShort }),
+                    settings.FontFamily, (float)settings.FontSize, settings.OneLine);
             }
 
             Size size = layout.Size;
@@ -1336,8 +1339,13 @@ namespace BandBar
                     monitor.SetZone(fresh.ZoneFilterId);
             }
             textColor = fresh.ResolveTextColor();
+            if (!fresh.DimWhenIdle)
+            {
+                idleReadings = 0;
+                dimmed = false;
+            }
 
-            // Units and decimals decide the bar's width: measure again.
+            // Units, decimals, the font and the layout decide the bar's size: measure again.
             layout?.Dispose();
             layout = null;
             (upText, downText) = TextsFor(reading);
@@ -1384,11 +1392,13 @@ namespace BandBar
             }
             using (Graphics g = Graphics.FromImage(canvas))
             {
+                // Dimming fades only the arrows and text: the background keeps its alpha, so the bar stays clickable.
+                Color Faded(Color c) => dimmed ? Color.FromArgb(c.A * DimmedAlpha / 255, c) : c;
                 g.Clear(reading.BlockerRequests > 0 ? BlockerAlertBackground : settings.BackgroundColor ?? HitTestableClear);
                 layout.Draw(g, upText, downText,
-                    live ? settings.UploadColor : InactiveArrowColor,
-                    live ? settings.DownloadColor : InactiveArrowColor,
-                    textColor);
+                    Faded(live ? settings.UploadColor : InactiveArrowColor),
+                    Faded(live ? settings.DownloadColor : InactiveArrowColor),
+                    Faded(textColor));
             }
             int error = LayeredWindow.Update(Handle, canvas, Location);
             if (error != 0)
@@ -1436,11 +1446,26 @@ namespace BandBar
             }
         }
 
+        // Below this in both directions, a reading counts as idle for dimWhenIdle (docs/DESIGN.md §4).
+        private const uint IdleBytesPerSecond = 1024;
+        private const int IdleReadingsBeforeDim = 5;
+        private const int DimmedAlpha = 120;
+
+        private bool IsDimmedAfter(Reading r)
+        {
+            bool quiet = settings.DimWhenIdle && r.Status == LinkStatus.Connected && !r.FilteringOff
+                         && r.BlockerRequests == 0 && r.Up < IdleBytesPerSecond && r.Down < IdleBytesPerSecond;
+            idleReadings = quiet ? Math.Min(idleReadings + 1, IdleReadingsBeforeDim) : 0;
+            return idleReadings >= IdleReadingsBeforeDim;
+        }
+
         private void ApplyReading(Reading r)
         {
             (SpeedText up, SpeedText down) = TextsFor(r);
+            bool dim = IsDimmedAfter(r);
             bool changed = !up.Equals(upText) || !down.Equals(downText) || r.Status != reading.Status
-                           || (r.BlockerRequests > 0) != (reading.BlockerRequests > 0);
+                           || (r.BlockerRequests > 0) != (reading.BlockerRequests > 0) || dim != dimmed;
+            dimmed = dim;
             if (IsHost && r.BlockerRequests > 0 && reading.BlockerRequests == 0)
                 Log.Info("The Blocker has connections waiting for approval");
             reading = r;
@@ -1475,6 +1500,9 @@ namespace BandBar
                 sb.Append('\n').Append(Strings.FilteringOff);
             if (reading.ServiceVersion != null)
                 sb.Append('\n').Append("NetLimiter ").Append(reading.ServiceVersion);
+            if (reading.Status == LinkStatus.Connected && reading.Transferred is Transferred total)
+                sb.Append('\n').Append(Strings.Totals(SpeedFormat.FormatAmount(total.Up, settings),
+                                                      SpeedFormat.FormatAmount(total.Down, settings)));
             if (reading.Status != LinkStatus.Connected && reading.Detail != null)
                 sb.Append('\n').Append(reading.Detail);
             if (Program.IsElevated)

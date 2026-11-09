@@ -31,6 +31,9 @@ namespace BandBar
             : "Blocker: " + count + (count == 1 ? " connection" : " connections") + " waiting for approval (click to open NetLimiter)";
         public static string Zone => "Zone";
 
+        /// <summary>The tooltip's totals line, for example "Total: ↑ 1.2 GB  ↓ 3.4 GB".</summary>
+        public static string Totals(string up, string down) => (Tr ? "Toplam: ↑ " : "Total: ↑ ") + up + "  ↓ " + down;
+
         /// <summary>Drawn in the bar while Windows' Base Filtering Engine is stopped.</summary>
         public static string FilteringOffShort => "WFP?";
         public static string FilteringOff => Tr

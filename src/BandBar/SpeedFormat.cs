@@ -29,24 +29,44 @@ namespace BandBar
     }
 
     /// <summary>
-    /// Dynamic B/s → KB/s → MB/s → GB/s with one decimal (docs/DESIGN.md).
+    /// Dynamic B/s → KB/s → MB/s → GB/s with one decimal, or bit/s → kbit/s → Mbit/s → Gbit/s (docs/DESIGN.md §4).
     /// Values are truncated, not rounded, so the bar never shows more than was measured and never flips to "1024,0".
     /// </summary>
     internal static class SpeedFormat
     {
-        internal static readonly IReadOnlyList<string> Units = new[] { "B/s", "KB/s", "MB/s", "GB/s" };
+        internal static readonly IReadOnlyList<string> ByteUnits = new[] { "B/s", "KB/s", "MB/s", "GB/s" };
+        internal static readonly IReadOnlyList<string> BitUnits = new[] { "bit/s", "kbit/s", "Mbit/s", "Gbit/s" };
+        private static readonly string[] AmountUnits = { "B", "KB", "MB", "GB", "TB", "PB" };
+
+        /// <summary>Every unit <see cref="Format"/> can return with these settings; used to fix the bar width.</summary>
+        public static IReadOnlyList<string> UnitsFor(Settings settings) => settings.Bits ? BitUnits : ByteUnits;
 
         public static SpeedText Format(uint bytesPerSecond, Settings settings)
         {
-            double unit = settings.UnitBase;
-            double value = bytesPerSecond;
+            IReadOnlyList<string> units = UnitsFor(settings);
+            // Bits are counted in steps of 1000, as networks do; unitBase applies to bytes only.
+            double unit = settings.Bits ? 1000 : settings.UnitBase;
+            double value = settings.Bits ? bytesPerSecond * 8.0 : bytesPerSecond;
             int index = 0;
-            while (value >= unit && index < Units.Count - 1)
+            while (value >= unit && index < units.Count - 1)
             {
                 value /= unit;
                 index++;
             }
-            return new SpeedText(Truncate(value, settings.Decimals), Units[index]);
+            return new SpeedText(Truncate(value, settings.Decimals), units[index]);
+        }
+
+        /// <summary>An amount of data such as "1.2 GB" (the tooltip's totals): bytes, unitBase, the chosen decimals.</summary>
+        public static string FormatAmount(ulong bytes, Settings settings)
+        {
+            double value = bytes;
+            int index = 0;
+            while (value >= settings.UnitBase && index < AmountUnits.Length - 1)
+            {
+                value /= settings.UnitBase;
+                index++;
+            }
+            return Truncate(value, index == 0 ? 0 : settings.Decimals) + " " + AmountUnits[index];
         }
 
         /// <summary>A number at least as wide as any <see cref="Format"/> can return; used to fix the bar width.</summary>

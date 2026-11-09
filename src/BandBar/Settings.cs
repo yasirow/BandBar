@@ -29,6 +29,9 @@ namespace BandBar
     {
         internal const long MaxFileBytes = 64 * 1024;
 
+        internal const string DefaultFontFamily = "Segoe UI";
+        internal const double DefaultFontSize = 9;
+
         // Values of "taskbars" (docs/DESIGN.md §5.3).
         internal const string TaskbarsMain = "main";
         internal const string TaskbarsOthers = "others";
@@ -37,7 +40,16 @@ namespace BandBar
         [DataMember(Name = "schemaVersion")] public int SchemaVersion;
         [DataMember(Name = "zoneFilterId")] public string ZoneFilterId;
         [DataMember(Name = "unitBase")] public int UnitBase;
+        /// <summary>"bytes" (B/s …) or "bits" (bit/s …, always base 1000), docs/DESIGN.md §4.</summary>
+        [DataMember(Name = "unit")] public string Unit;
         [DataMember(Name = "decimals")] public int Decimals;
+        /// <summary>"two-line" or "one-line" (horizontal taskbars only), docs/DESIGN.md §4.</summary>
+        [DataMember(Name = "layout")] public string Layout;
+        [DataMember(Name = "fontFamily")] public string FontFamily;
+        /// <summary>Points, 6–16; where fitting the bar to the taskbar starts.</summary>
+        [DataMember(Name = "fontSize")] public double FontSize;
+        /// <summary>Half opacity while there is no traffic (docs/DESIGN.md §4).</summary>
+        [DataMember(Name = "dimWhenIdle")] public bool DimWhenIdle;
         [DataMember(Name = "theme")] public string Theme;
         [DataMember(Name = "colors")] public ColorSettings Colors;
         [DataMember(Name = "opacity")] public double Opacity;
@@ -57,6 +69,10 @@ namespace BandBar
         [DataMember(Name = "logLevel")] public string LogLevel;
 
         public Settings() => SetDefaults();
+
+        public bool Bits => Unit == "bits";
+
+        public bool OneLine => Layout == "one-line";
 
         public Color DownloadColor { get; private set; }
         public Color UploadColor { get; private set; }
@@ -173,7 +189,12 @@ namespace BandBar
             SchemaVersion = 1;
             ZoneFilterId = null;
             UnitBase = 1024;
+            Unit = "bytes";
             Decimals = 1;
+            Layout = "two-line";
+            FontFamily = DefaultFontFamily;
+            FontSize = DefaultFontSize;
+            DimWhenIdle = false;
             Theme = "auto";
             Colors = new ColorSettings();
             Opacity = 0.85;
@@ -191,7 +212,11 @@ namespace BandBar
         {
             if (UnitBase != 1000)
                 UnitBase = 1024;
+            Unit = (Unit ?? "").Trim().ToLowerInvariant() == "bits" ? "bits" : "bytes";
             Decimals = Clamp(Decimals, 0, 3);
+            Layout = (Layout ?? "").Trim().ToLowerInvariant() == "one-line" ? "one-line" : "two-line";
+            FontFamily = string.IsNullOrWhiteSpace(FontFamily) ? DefaultFontFamily : FontFamily.Trim();
+            FontSize = double.IsNaN(FontSize) || FontSize <= 0 ? DefaultFontSize : Math.Max(6, Math.Min(16, FontSize));
             Opacity = double.IsNaN(Opacity) ? 0.85 : Math.Max(0.3, Math.Min(1.0, Opacity));
             if (AnchorOffsetDip.HasValue)
                 AnchorOffsetDip = Clamp(AnchorOffsetDip.Value, 0, 10000);

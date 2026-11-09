@@ -199,7 +199,9 @@ namespace BandBar.Tests
             {
                 Assert.IsTrue(SettingsFile.EnsureExists(folder.Path));
                 string text = folder.ReadSettings();
-                AssertInOrder(text, "\"schemaVersion\"", "\"zoneFilterId\"", "\"unitBase\"", "\"decimals\"", "\"theme\"",
+                AssertInOrder(text, "\"schemaVersion\"", "\"zoneFilterId\"", "\"unitBase\"", "\"unit\": \"bytes\"",
+                    "\"decimals\"", "\"layout\": \"two-line\"", "\"fontFamily\": \"Segoe UI\"", "\"fontSize\": 9",
+                    "\"dimWhenIdle\": false", "\"theme\"",
                     "\"colors\"", "\"upload\"", "\"download\"", "\"text\"", "\"background\"", "\"opacity\"",
                     "\"anchorOffsetDip\"", "\"taskbars\": \"main\"", "\"otherAnchorOffsetDip\": null",
                     "\"hideOnFullscreen\"", "\"fullscreenExeList\": [", "\"followAutoHideTaskbar\"",

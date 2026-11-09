@@ -219,7 +219,7 @@ namespace BandBar.Api
 
                 Publish(new Reading(LinkStatus.Connected, rate.Down, rate.Up, current.ZoneName, current.ServiceVersion,
                                     zoneId: current.ZoneId, details: details, blockerRequests: requests,
-                                    filteringOff: rate.FilteringOff), null);
+                                    filteringOff: rate.FilteringOff, transferred: rate.Transferred), null);
                 return true;
             }
             catch (Exception ex)

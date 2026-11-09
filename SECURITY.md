@@ -47,8 +47,16 @@ for the full model.
 Every release publishes `SHA256SUMS.txt`. In PowerShell:
 
 ```powershell
-Get-FileHash .\BandBar-Setup-0.6.0.exe -Algorithm SHA256
+Get-FileHash .\BandBar-Setup-0.7.0.exe -Algorithm SHA256
 ```
 
 Compare the result with the line for that file in `SHA256SUMS.txt`. Releases are built by GitHub Actions from the
 tagged commit; the build log is public on the release's workflow run.
+
+Each release file also has a build provenance attestation from GitHub. With the [GitHub CLI](https://cli.github.com/):
+
+```powershell
+gh attestation verify .\BandBar-Setup-0.7.0.exe --repo yasirow/BandBar
+```
+
+It succeeds only for a file that this repository's release workflow built. Releases are not code-signed.

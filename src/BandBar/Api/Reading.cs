@@ -18,10 +18,12 @@ namespace BandBar.Api
 
         public Reading(LinkStatus status, uint down = 0, uint up = 0, string zoneName = null,
                        string serviceVersion = null, string detail = null, string zoneId = null,
-                       NlDetails details = null, int blockerRequests = 0, bool filteringOff = false)
+                       NlDetails details = null, int blockerRequests = 0, bool filteringOff = false,
+                       Transferred? transferred = null)
         {
             Status = status;
             FilteringOff = filteringOff;
+            Transferred = transferred;
             Down = down;
             Up = up;
             ZoneName = zoneName;
@@ -47,6 +49,9 @@ namespace BandBar.Api
         /// </summary>
         public bool FilteringOff { get; }
 
+        /// <summary>The zone's transferred totals as NetLimiter counts them, for the tooltip; null when unknown.</summary>
+        public Transferred? Transferred { get; }
+
         public LinkStatus Status { get; }
 
         /// <summary>Bytes per second.</summary>
@@ -62,16 +67,33 @@ namespace BandBar.Api
         public string Detail { get; }
     }
 
+    /// <summary>Bytes transferred, as counted by NetLimiter.</summary>
+    internal readonly struct Transferred
+    {
+        public Transferred(ulong down, ulong up)
+        {
+            Down = down;
+            Up = up;
+        }
+
+        public ulong Down { get; }
+        public ulong Up { get; }
+    }
+
     /// <summary>Rate of the selected zone, bytes per second.</summary>
     internal readonly struct Rate
     {
-        public Rate(uint down, uint up, bool zoneFound, bool filteringOff)
+        public Rate(uint down, uint up, bool zoneFound, bool filteringOff, Transferred? transferred = null)
         {
             Down = down;
             Up = up;
             ZoneFound = zoneFound;
             FilteringOff = filteringOff;
+            Transferred = transferred;
         }
+
+        /// <summary>Null when the installed API does not report it.</summary>
+        public Transferred? Transferred { get; }
 
         public uint Down { get; }
         public uint Up { get; }

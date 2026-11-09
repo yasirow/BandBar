@@ -29,6 +29,11 @@ namespace BandBar.Tests
                 Assert.IsTrue(s.FollowAutoHideTaskbar);
                 Assert.AreEqual(0, s.ListedApps.Length);
                 Assert.IsNull(s.Hotkey);
+                Assert.AreEqual("bytes", s.Unit);
+                Assert.AreEqual("two-line", s.Layout);
+                Assert.AreEqual("Segoe UI", s.FontFamily);
+                Assert.AreEqual(9.0, s.FontSize);
+                Assert.IsFalse(s.DimWhenIdle);
                 Assert.AreEqual("info", s.LogLevel);
                 Assert.AreEqual(Color.FromArgb(0xE7, 0x4C, 0x3C), s.UploadColor);
                 Assert.AreEqual(Color.FromArgb(0x2E, 0xCC, 0x71), s.DownloadColor);
@@ -96,6 +101,49 @@ namespace BandBar.Tests
                 Assert.AreEqual("debug", s.LogLevel);
                 Assert.AreEqual(Color.FromArgb(0x10, 0x10, 0x10), s.TextColorOverride);
                 Assert.AreEqual(Color.FromArgb(128, 0, 0, 0), s.BackgroundColor);
+            }
+        }
+
+        [TestMethod]
+        public void ReadsTheAppearanceKeys()
+        {
+            using (var folder = new TempFolder())
+            {
+                folder.WriteSettings("{ \"unit\": \" BITS \", \"layout\": \"One-Line\", \"fontFamily\": \" Consolas \", "
+                                     + "\"fontSize\": 10.5, \"dimWhenIdle\": true }");
+                Settings s = Load(folder);
+                Assert.IsTrue(s.Bits);
+                Assert.IsTrue(s.OneLine);
+                Assert.AreEqual("Consolas", s.FontFamily);
+                Assert.AreEqual(10.5, s.FontSize);
+                Assert.IsTrue(s.DimWhenIdle);
+            }
+        }
+
+        [DataTestMethod]
+        [DataRow("{ \"fontSize\": 30 }", 16.0)]
+        [DataRow("{ \"fontSize\": 2 }", 6.0)]
+        [DataRow("{ \"fontSize\": 0 }", 9.0)]
+        [DataRow("{ \"fontSize\": -4 }", 9.0)]
+        public void FontSizeStaysInRange(string json, double expected)
+        {
+            using (var folder = new TempFolder())
+            {
+                folder.WriteSettings(json);
+                Assert.AreEqual(expected, Load(folder).FontSize);
+            }
+        }
+
+        [TestMethod]
+        public void UnknownAppearanceValuesMeanTheDefaults()
+        {
+            using (var folder = new TempFolder())
+            {
+                folder.WriteSettings("{ \"unit\": \"nibbles\", \"layout\": \"three-line\", \"fontFamily\": \"  \" }");
+                Settings s = Load(folder);
+                Assert.IsFalse(s.Bits);
+                Assert.IsFalse(s.OneLine);
+                Assert.AreEqual("Segoe UI", s.FontFamily);
             }
         }
 

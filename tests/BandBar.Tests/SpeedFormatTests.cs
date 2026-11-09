@@ -1,4 +1,5 @@
 using System.Globalization;
+using System.Linq;
 using System.Threading;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 
@@ -19,12 +20,46 @@ namespace BandBar.Tests
         [TestCleanup]
         public void TearDown() => Thread.CurrentThread.CurrentCulture = previousCulture;
 
-        private static Settings With(int unitBase = 1024, int decimals = 1)
+        private static Settings With(int unitBase = 1024, int decimals = 1, string unit = "bytes")
         {
             Settings settings = Settings.Defaults();
             settings.UnitBase = unitBase;
             settings.Decimals = decimals;
+            settings.Unit = unit;
             return settings;
+        }
+
+        [DataTestMethod]
+        [DataRow(0u, "0.0 bit/s")]
+        [DataRow(124u, "992.0 bit/s")]
+        [DataRow(125u, "1.0 kbit/s")]
+        [DataRow(125000u, "1.0 Mbit/s")]
+        [DataRow(12500000u, "100.0 Mbit/s")]
+        [DataRow(125000000u, "1.0 Gbit/s")]
+        [DataRow(uint.MaxValue, "34.3 Gbit/s")] // 34.359 Gbit/s, truncated
+        public void BitsStepInThousands(uint bytesPerSecond, string expected)
+        {
+            // unitBase 1024 does not apply to bits.
+            Assert.AreEqual(expected, SpeedFormat.Format(bytesPerSecond, With(unit: "bits")).ToString());
+        }
+
+        [TestMethod]
+        public void UnitsFollowTheSetting()
+        {
+            CollectionAssert.AreEqual(new[] { "B/s", "KB/s", "MB/s", "GB/s" }, SpeedFormat.UnitsFor(With()).ToArray());
+            CollectionAssert.AreEqual(new[] { "bit/s", "kbit/s", "Mbit/s", "Gbit/s" }, SpeedFormat.UnitsFor(With(unit: "bits")).ToArray());
+        }
+
+        [DataTestMethod]
+        [DataRow(0ul, 1024, "0 B")]
+        [DataRow(512ul, 1024, "512 B")]
+        [DataRow(1536ul, 1024, "1.5 KB")]
+        [DataRow(5368709120ul, 1024, "5.0 GB")]
+        [DataRow(1099511627776ul, 1024, "1.0 TB")]
+        [DataRow(1500000000ul, 1000, "1.5 GB")]
+        public void FormatsAmounts(ulong bytes, int unitBase, string expected)
+        {
+            Assert.AreEqual(expected, SpeedFormat.FormatAmount(bytes, With(unitBase)));
         }
 
         [DataTestMethod]
@@ -102,16 +137,19 @@ namespace BandBar.Tests
         [TestMethod]
         public void NoNumberIsLongerThanTheWidestSample()
         {
-            foreach (int unitBase in new[] { 1000, 1024 })
+            foreach (string unit in new[] { "bytes", "bits" })
             {
-                for (int decimals = 0; decimals <= 3; decimals++)
+                foreach (int unitBase in new[] { 1000, 1024 })
                 {
-                    Settings settings = With(unitBase, decimals);
-                    int widest = SpeedFormat.WidestNumber(settings).Length;
-                    foreach (uint value in new[] { 0u, 999u, 1000u, 1023u, 1024u, 1048575u, 999999u, 1023999999u, uint.MaxValue })
+                    for (int decimals = 0; decimals <= 3; decimals++)
                     {
-                        string number = SpeedFormat.Format(value, settings).Number;
-                        Assert.IsTrue(number.Length <= widest, $"{number} (base {unitBase}, {decimals} decimals)");
+                        Settings settings = With(unitBase, decimals, unit);
+                        int widest = SpeedFormat.WidestNumber(settings).Length;
+                        foreach (uint value in new[] { 0u, 124u, 999u, 1000u, 1023u, 1024u, 1048575u, 999999u, 1023999999u, uint.MaxValue })
+                        {
+                            string number = SpeedFormat.Format(value, settings).Number;
+                            Assert.IsTrue(number.Length <= widest, $"{number} ({unit}, base {unitBase}, {decimals} decimals)");
+                        }
                     }
                 }
             }

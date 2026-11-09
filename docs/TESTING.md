@@ -11,7 +11,8 @@ real desktop. Every release goes through the automated checks below and the manu
 | NetLimiter API pin | `VerifyNetLimiterApi` target | The compile-time `NetLimiter.dll` does not match the pinned SHA-256 |
 | Locked restore | `build.ps1` | A package differs from `packages.lock.json` |
 | Single-file output | `VerifyOutputIsSingleExe` target | The output contains anything besides `BandBar.exe` and `BandBar.exe.config` |
-| Unit tests | `tests/BandBar.Tests` via `build.ps1 -Test` (always run by `tools/package.ps1`, so by CI and the release workflow) | Speed formatting, `settings.json` reading and writing (strict JSON, keys and order kept, invalid files never overwritten, no temporary file left), the log scrubber, the program list (including reading a name from the process snapshot) or hotkey parsing misbehave |
+| Unit tests | `tests/BandBar.Tests` via `build.ps1 -Test` (always run by `tools/package.ps1`, so by CI and the release workflow) | Speed and amount formatting (bytes and bits), the bar's layout sizes, `settings.json` reading and writing (strict JSON, keys and order kept, invalid files never overwritten, no temporary file left), the log scrubber, the program list (including reading a name from the process snapshot) or hotkey parsing misbehave |
+| Build provenance | Release workflow (`actions/attest`) | The attestation for the setup or the ZIP cannot be created |
 | Installer build | `tools/package.ps1 -RequireInstaller` (CI) | The Inno Setup script does not compile |
 | Tag matches version | Release workflow | The pushed tag differs from `<Version>` in the project |
 
@@ -25,7 +26,7 @@ The log (`bandbar.log`, next to the executable) should contain no `WARN` or `ERR
 | # | Steps | Expected |
 |---|---|---|
 | B1 | Start BandBar with NetLimiter running | Two lines appear just before the notification area: red ⬆ upload on top, green ⬇ download below; values follow NetLimiter's Internet zone |
-| B2 | Hover the bar | Tooltip: `BandBar <version>`, zone, `Connected`, NetLimiter version |
+| B2 | Hover the bar | Tooltip: `BandBar <version>`, zone, `Connected`, NetLimiter version, the zone's totals (`Total: ↑ … ↓ …`) |
 | B3 | Type in any window, left-click the bar, keep typing | The typing window keeps focus |
 | B4 | Right-click the bar; click elsewhere; right-click again and choose Exit | Menu opens, closes on the outside click, Exit closes the bar |
 | B5 | Start the executable a second time | Still exactly one bar |
@@ -33,6 +34,10 @@ The log (`bandbar.log`, next to the executable) should contain no `WARN` or `ERR
 | B7 | Settings → Personalization → Colors: switch the Windows mode between Light and Dark | The text turns dark on the light taskbar and white on the dark one, without restarting BandBar |
 | B8 | Show the accent colour on the taskbar (Colors → "Show accent color on Start and taskbar") with a light and with a dark accent | The text stays readable |
 | B9 | Settings → Accessibility → Contrast themes: apply a dark one (for example Night sky) and a light one (Desert), then switch contrast themes off | The text takes the contrast theme's text colour each time and returns to normal afterwards, without restarting BandBar; the arrows keep their colours |
+| B10 | Set `"layout": "one-line"`; then put the taskbar on a side (if your setup allows) | Horizontal taskbar: both values side by side, one line tall, centred on the taskbar. Vertical taskbar: two lines or the stacked layout as before |
+| B11 | Set `"unit": "bits"` | bit/s, kbit/s, Mbit/s; 1 MB/s of traffic shows as about 8 Mbit/s |
+| B12 | Set `"fontFamily": "Consolas", "fontSize": 12`; then a font name that does not exist | Consolas, larger, still inside the taskbar; the unknown font gives Segoe UI and one `WARN` |
+| B13 | Set `"dimWhenIdle": true`, stop all traffic for a few seconds, then start a download | The arrows and text fade after about 5 s and return at once with the download; the bar can still be dragged and right-clicked while faded |
 
 ### Taskbar
 
@@ -137,6 +142,7 @@ The log (`bandbar.log`, next to the executable) should contain no `WARN` or `ERR
 | I4 | Check `SHA256SUMS.txt` against the downloads | Hashes match |
 | I5 | Look at the Start menu entry, the setup file and Windows Settings → Apps | BandBar's own icon (red and green arrows) is shown |
 | I6 | Run the setup on Windows 10 1809 without .NET Framework 4.8 | A clear message, setup ends without installing anything |
+| I7 | `gh attestation verify .\BandBar-Setup-x.y.z.exe --repo yasirow/BandBar` (and the ZIP) | Verification succeeds; a modified copy of the file fails |
 
 ## Results
 
@@ -153,3 +159,4 @@ The log (`bandbar.log`, next to the executable) should contain no `WARN` or `ERR
 | 0.4.0 | Windows 11, NetLimiter 5.3 | Automated checks and 125 unit tests pass. Manual tests pending (N1–N6) |
 | 0.5.0 | Windows 11, NetLimiter 5.3 | Automated checks and 125 unit tests pass. S3 (with the Debug override) and S4 passed. Connected normally: speeds as before, no `WFP?`. Pending: B9, S5 (test PC only), W1–W2 (Windows 10) |
 | 0.6.0 | Windows 11, NetLimiter 5.3 | Automated checks and 130 unit tests pass. Manual tests pending (M1–M8) |
+| 0.7.0 | Windows 11, NetLimiter 5.3 | Automated checks and 155 unit tests pass (including layout measurements). B10 (horizontal taskbar) and B11 passed. Pending: B2 totals, B10 vertical, B12, B13, I7 (needs a release) |

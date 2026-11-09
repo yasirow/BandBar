@@ -17,6 +17,7 @@ namespace BandBar.Api
         private readonly uint zoneInternalId;
         private readonly Action onDisconnected;
         private bool bfeCheckUnavailable;
+        private bool transferredUnavailable;
 
         private NlSession(NLClient client, NodeLoader loader, Filter zone, Action onDisconnected)
         {
@@ -66,7 +67,7 @@ namespace BandBar.Api
                 if (node.FilterId == zoneInternalId)
                 {
                     INLFlowValue<uint> rate = node.TransferRate;
-                    return new Rate(rate.In, rate.Out, zoneFound: true, filteringOff);
+                    return new Rate(rate.In, rate.Out, zoneFound: true, filteringOff, TransferredOf(node));
                 }
             }
             return new Rate(0, 0, zoneFound: false, filteringOff);
@@ -93,6 +94,30 @@ namespace BandBar.Api
         // A separate method, so that a missing member fails when this one is compiled, inside the caller's try.
         [MethodImpl(MethodImplOptions.NoInlining)]
         private bool ReadBfeRunning() => client.IsBfeRunning;
+
+        // The tooltip's totals (docs/DESIGN.md §3.3); an API without the member only leaves them out.
+        private Transferred? TransferredOf(FilterNode node)
+        {
+            if (transferredUnavailable)
+                return null;
+            try
+            {
+                return ReadTransferred(node);
+            }
+            catch (MissingMemberException ex)
+            {
+                transferredUnavailable = true;
+                Log.Warn("This NetLimiter version does not report transferred totals; the tooltip leaves them out", ex);
+                return null;
+            }
+        }
+
+        [MethodImpl(MethodImplOptions.NoInlining)]
+        private static Transferred ReadTransferred(FilterNode node)
+        {
+            INLFlowValue<ulong> total = node.Transferred;
+            return new Transferred(total.In, total.Out);
+        }
 
         // Read only (docs/DESIGN.md §3.4): the feature switches are only looked at, never set.
         public NlDetails ReadDetails()
