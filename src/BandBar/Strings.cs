@@ -13,6 +13,18 @@ namespace BandBar
         public static string OpenSettings => Tr ? "Ayar dosyasını aç" : "Open settings file";
         public static string OpenLogFolder => Tr ? "Log klasörünü aç" : "Open log folder";
         public static string DragHint => Tr ? "Taşımak için sürükleyin, menü için sağ tıklayın" : "Drag to move, right-click for the menu";
+        public static string OpenNetLimiter => Tr ? "NetLimiter'ı aç" : "Open NetLimiter";
+        public static string ReleasesPage => Tr ? "Sürüm sayfası (GitHub)" : "Releases page (GitHub)";
+        public static string NotConnected => Tr ? "(NetLimiter'a bağlı değil)" : "(not connected to NetLimiter)";
+
+        // NetLimiter's own feature names, as in its interface (like "Zone").
+        public static string Limiter => "Limiter";
+        public static string Blocker => "Blocker";
+        public static string Priorities => "Priorities";
+
+        public static string BlockerWaiting(int count) => Tr
+            ? "Blocker: " + count + " bağlantı onay bekliyor (tıklayınca NetLimiter açılır)"
+            : "Blocker: " + count + (count == 1 ? " connection" : " connections") + " waiting for approval (click to open NetLimiter)";
         public static string Zone => "Zone";
         public static string Elevated => Tr ? "Yönetici olarak çalışıyor (gerekli değil)" : "Running as administrator (not needed)";
 

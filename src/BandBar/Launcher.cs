@@ -37,6 +37,20 @@ namespace BandBar
             Start(new ProcessStartInfo(explorer, arguments), logFailure: true);
         }
 
+        /// <summary>NetLimiter's own client, only from its verified install folder with a valid Locktime signature.</summary>
+        public static void OpenNetLimiter()
+        {
+            string path = Api.NlApiLoader.VerifiedClientAppPath();
+            if (path != null)
+                Start(new ProcessStartInfo(path), logFailure: true);
+        }
+
+        /// <summary>The project's fixed Releases page in the default browser; BandBar itself does not connect.</summary>
+        public static void OpenReleasesPage() =>
+            Start(new ProcessStartInfo(ReleasesUrl), logFailure: true);
+
+        internal const string ReleasesUrl = "https://github.com/yasirow/BandBar/releases";
+
         private static bool Start(ProcessStartInfo info, bool logFailure)
         {
             // Through the shell, as a double-click would; no error dialog of its own, never elevated.

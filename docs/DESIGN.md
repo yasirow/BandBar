@@ -113,7 +113,24 @@ foreach (FilterNode node in loader.Filters.Nodes)
 - Reading stops completely while the bar is hidden for a full-screen application and while the session is locked.
 - The bar is redrawn only when the displayed text changes.
 
-### 3.4 States
+### 3.4 What else is read (menu and Blocker alert)
+
+All of it read-only, inside the same 2-second time limit as the speed:
+
+- **Zones** for the *Zone* menu: the filters whose `Type` is `FilterType.Zone` (name and ID) and
+  `GetInternetZone()`.
+- **Feature states** shown in the menu: `IsLimiterEnabled`, `IsFwEnabled` (Blocker), `IsPriorityEnabled`.
+- Both are read when the connection opens, then every tenth reading (about every 10 s), and at the next reading
+  after the menu is opened; the menu shows the last values.
+- **Pending Blocker requests:** while the Blocker is on, the number of entries in `FirewallRequests` with every
+  reading. BandBar **never answers a request** (`ReplyFirewallRequest`), never registers as a request handler
+  (`SubscribeAsFwReqeustHandler`) and does not subscribe to `FirewallRequestChange` — subscribing could make the
+  service route requests to BandBar and wait for an answer that never comes. NetLimiter's own client stays the
+  only place where requests are answered.
+- If the service refuses one of these reads (for example because the Monitor right does not cover it), that one
+  feature is switched off for the session and logged once; the speed keeps working.
+
+### 3.5 States
 
 | Bar shows | Meaning |
 |---|---|
@@ -152,10 +169,19 @@ because messages can contain paths.
 - **Fixed width:** the text column is measured from the widest possible value, so the bar never resizes.
 - **Units:** B/s → KB/s → MB/s → GB/s, base 1024 (or 1000), one decimal by default. Values are truncated, never
   rounded up. The decimal separator follows the Windows region settings.
-- **Menu:** a native Win32 menu (`TrackPopupMenuEx` via WinForms `ContextMenu`): *Reset position* (available
-  while a dragged position is saved), *Open settings file*, *Open log folder*, *Exit*. The bar calls `SetForegroundWindow`
-  only when the user right-clicks it, so the menu can close when the user clicks elsewhere. The two *Open* items
-  start another program, under the rules in [§7.4](#74-starting-other-programs).
+- **Menu:** a native Win32 menu (`TrackPopupMenuEx` via WinForms `ContextMenu`):
+  - *Zone* ▸ the NetLimiter zones, the shown one ticked; choosing one saves `zoneFilterId` ([§8.1](#81-settingsjson)).
+  - *Limiter*, *Blocker*, *Priorities*: greyed out, ticked when on — information only ([§3.4](#34-what-else-is-read-menu-and-blocker-alert)).
+  - *Open NetLimiter*.
+  - *Reset position* (available while a dragged position is saved), *Open settings file*, *Open log folder*,
+    *Releases page*.
+  - *Exit*.
+
+  The bar calls `SetForegroundWindow` only when the user right-clicks it, so the menu can close when the user clicks
+  elsewhere. The *Open* items and *Releases page* start another program, under the rules in
+  [§7.4](#74-starting-other-programs).
+- **Blocker alert:** while NetLimiter's Blocker has connections waiting for approval, the bar's background turns a
+  translucent amber, the tooltip says how many are waiting, and a plain left-click (not a drag) opens NetLimiter.
 - **UI language:** Turkish when the Windows display language is Turkish, English otherwise.
 
 ## 5. Taskbar tracking
@@ -287,7 +313,9 @@ offers no "the taskbar moved above you" notification.
 - Process memory access, overlays, DirectX/OpenGL/Vulkan layers, drivers.
 - Requesting administrator rights or elevating (`asInvoker` manifest; NetLimiter's elevation calls are never used).
 - Any network connection or listening port. The API's internet features (VirusTotal, DNS, HTTP) are never called.
-- NetLimiter's remote connection, its TCP binding, or changes to its settings, rules or access table.
+- NetLimiter's remote connection, its TCP binding, or changes to its settings, rules or access table — including
+  switching the Limiter, Blocker or Priorities on or off (the menu only shows their state; the owner decided so in
+  0.4.0), answering Blocker requests or registering as their handler.
 - Writing to another program's files, folders or registry keys.
 - Starting another program, except as described in [§7.4](#74-starting-other-programs).
 - Telemetry, automatic updates, crash reporting, or downloading anything.
@@ -331,8 +359,8 @@ BandBar starts another program only to show the user something they asked for:
   |---|---|---|
   | *Open settings file* | Our own `settings.json` with the program Windows associates with `.json` files, or Windows' Notepad (`%SystemRoot%\System32\notepad.exe`) when there is none. If the file does not exist yet, it is first created with every key at its default ([§8.1](#81-settingsjson)). | 0.2.0 |
   | *Open log folder* | Windows' File Explorer (`%SystemRoot%\explorer.exe`) showing our own data folder, with `bandbar.log` selected | 0.2.0 |
-  | *Open NetLimiter* (planned) | NetLimiter's executable from the install folder that was verified for the API ([§3.1](#31-where-it-comes-from)) | 0.4.0 |
-  | *Releases page* (planned) | The fixed project URL `https://github.com/yasirow/BandBar/releases` in the default browser; BandBar itself still never connects | 0.4.0 |
+  | *Open NetLimiter*, or a left-click on the bar while Blocker requests are waiting | `NLClientApp.exe` from the NetLimiter folder found for the API ([§3.1](#31-where-it-comes-from)), only if its Authenticode signature is valid and from Locktime Software s.r.o. — the same check as for the API files | 0.4.0 |
+  | *Releases page* | The fixed project URL `https://github.com/yasirow/BandBar/releases` in the default browser; BandBar itself still never connects | 0.4.0 |
 
 - **No elevation.** Never the `runas` verb or anything else that could ask for administrator rights.
 - **Fire and forget.** The started program runs on its own: BandBar keeps no handle to it, does not wait for it and
@@ -353,7 +381,8 @@ Optional. Read at start-up; ignored (with a log entry) if it is invalid or large
   example saved half-way through an edit), the current settings stay in effect and a warning is logged; a deleted
   file means the defaults.
 - **What the app writes, and when.** Only on a user action: dragging the bar (`anchorOffsetDip`), *Reset position*
-  (sets `anchorOffsetDip` to `null`) and *Open settings file*. When no file exists yet, whichever of these comes
+  (sets `anchorOffsetDip` to `null`), choosing a zone (`zoneFilterId`; the Internet zone is written as `null`) and
+  *Open settings file*. When no file exists yet, whichever of these comes
   first creates it with every key below at its default (and the new position), so the user always finds the full
   list in it; resetting with no file creates nothing. An existing file is changed **only in the key concerned**:
   every other key, unknown keys, and their order are kept. An existing file that is invalid or larger than 64 KB is
@@ -364,7 +393,7 @@ Optional. Read at start-up; ignored (with a log entry) if it is invalid or large
 
 | Key | Default | Meaning |
 |---|---|---|
-| `zoneFilterId` | `null` | NetLimiter filter ID of the zone to show; `null` = Internet zone |
+| `zoneFilterId` | `null` | NetLimiter filter ID of the zone to show; `null` = Internet zone. Set by the *Zone* menu |
 | `unitBase` | `1024` | `1024` or `1000` |
 | `decimals` | `1` | 0–3 |
 | `theme` | `"auto"` | `"auto"` (follow the Windows taskbar), `"dark"` or `"light"` — the taskbar's colour, which decides the text colour |

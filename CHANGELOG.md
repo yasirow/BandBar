@@ -8,6 +8,24 @@ milestone is a minor release (`0.x.0`) and fixes in between are patch releases (
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-09
+
+### Added
+- **Zone menu:** right-click → *Zone* lists NetLimiter's zones; choose one and the bar shows it at once. The choice
+  is saved as `zoneFilterId` (the Internet zone, the default, as `null`).
+- **Limiter, Blocker and Priorities in the menu**, ticked when they are on. They are information only: BandBar never
+  switches NetLimiter's features. **Open NetLimiter** opens NetLimiter's own window to change them.
+- **Blocker alert:** while NetLimiter's Blocker holds connections waiting for your approval, the bar turns amber and
+  the tooltip says how many; a click on the bar opens NetLimiter. BandBar never answers a request itself.
+- **Releases page (GitHub)** in the menu opens the project's download page in your browser. BandBar itself still
+  never connects to the internet.
+
+### Security
+- Everything new only reads from NetLimiter. BandBar never answers Blocker requests, never registers as their
+  handler and never subscribes to their notifications, so NetLimiter never waits for BandBar.
+- *Open NetLimiter* starts `NLClientApp.exe` only from the NetLimiter folder found for the API, and only if its
+  signature is valid and from Locktime Software — the same check as for the API files.
+
 ## [0.3.0] - 2026-11-09
 
 ### Added
@@ -188,7 +206,8 @@ Initial preview.
 - An auto-hiding taskbar is not supported yet.
 - If the app is started while a full-screen game is already running, it does not hide until that game closes.
 
-[Unreleased]: https://github.com/yasirow/BandBar/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/yasirow/BandBar/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/yasirow/BandBar/releases/tag/v0.4.0
 [0.3.0]: https://github.com/yasirow/BandBar/releases/tag/v0.3.0
 [0.2.0]: https://github.com/yasirow/BandBar/blob/main/CHANGELOG.md#020---2026-11-09
 [0.1.5]: https://github.com/yasirow/BandBar/releases/tag/v0.1.5

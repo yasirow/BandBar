@@ -157,6 +157,35 @@ namespace BandBar.Tests
         }
 
         [TestMethod]
+        public void WritesTextValuesSafely()
+        {
+            using (var folder = new TempFolder())
+            {
+                folder.WriteSettings("{ \"zoneFilterId\": null, \"decimals\": 2 }");
+                const string id = "{zone \"quoted\" \\ back/slash İç}";
+                Assert.IsTrue(SettingsFile.SetString(folder.Path, "zoneFilterId", id));
+                AssertInOrder(folder.ReadSettings(), "\"zoneFilterId\"", "\"decimals\"");
+                Settings s = Load(folder);
+                Assert.AreEqual(id, s.ZoneFilterId);
+                Assert.AreEqual(2, s.Decimals);
+
+                Assert.IsTrue(SettingsFile.SetString(folder.Path, "zoneFilterId", null));
+                Assert.IsNull(Load(folder).ZoneFilterId);
+                AssertNoTemporaryFile(folder);
+            }
+        }
+
+        [TestMethod]
+        public void ChoosingTheDefaultZoneWithoutAFileCreatesNone()
+        {
+            using (var folder = new TempFolder())
+            {
+                Assert.IsTrue(SettingsFile.SetString(folder.Path, "zoneFilterId", null));
+                Assert.IsFalse(File.Exists(folder.SettingsPath));
+            }
+        }
+
+        [TestMethod]
         public void NoDataFolderMeansNothingIsWritten()
         {
             Assert.IsFalse(SettingsFile.SetNumber(null, Key, 1));

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Runtime.CompilerServices;
 using NetLimiter.Service;
 
@@ -22,11 +23,13 @@ namespace BandBar.Api
             this.loader = loader;
             this.onDisconnected = onDisconnected;
             zoneInternalId = zone.InternalId;
+            ZoneId = zone.Id;
             ZoneName = zone.Name;
             ServiceVersion = client.ServiceVersion;
             client.StateChanged += OnStateChanged;
         }
 
+        public string ZoneId { get; }
         public string ZoneName { get; }
         public string ServiceVersion { get; }
 
@@ -66,6 +69,26 @@ namespace BandBar.Api
             }
             return new Rate(0, 0, zoneFound: false);
         }
+
+        // Read only (docs/DESIGN.md §3.4): the feature switches are only looked at, never set.
+        public NlDetails ReadDetails()
+        {
+            Filter internet = client.GetInternetZone();
+            var zones = new List<ZoneInfo>();
+            foreach (Filter filter in client.Filters)
+            {
+                if (filter.Type == FilterType.Zone)
+                    zones.Add(new ZoneInfo(filter.Id, filter.Name, internet != null && filter.Id == internet.Id));
+            }
+            // The Internet zone first, then the others by name.
+            zones.Sort((a, b) => a.IsInternet != b.IsInternet ? (a.IsInternet ? -1 : 1)
+                                 : string.Compare(a.Name, b.Name, StringComparison.CurrentCultureIgnoreCase));
+            return new NlDetails(zones, client.IsLimiterEnabled, client.IsFwEnabled, client.IsPriorityEnabled);
+        }
+
+        // Only counts. Never ReplyFirewallRequest, never SubscribeAsFwReqeustHandler, no FirewallRequestChange
+        // subscription: the service must never wait for BandBar to answer (docs/DESIGN.md §3.4).
+        public int CountBlockerRequests() => client.FirewallRequests?.Count ?? 0;
 
         public void Dispose()
         {

@@ -75,6 +75,17 @@ The log (`bandbar.log`, next to the executable) should contain no `WARN` or `ERR
 | C4 | Fix the file and save; then drag the bar | The fix applies; dragging changes only `anchorOffsetDip` and keeps the rest of the file, including its order |
 | C5 | Right-click → Open log folder | File Explorer opens BandBar's data folder with `bandbar.log` selected |
 
+### NetLimiter menu and Blocker alert
+
+| # | Steps | Expected |
+|---|---|---|
+| N1 | Right-click → Zone | NetLimiter's zones are listed, the shown one ticked; choosing another changes the values within a few seconds and saves `zoneFilterId` (the Internet zone as `null`) |
+| N2 | Look at Limiter / Blocker / Priorities in the menu, switch one in NetLimiter, open the menu again after ~10 s | Greyed out, ticked as in NetLimiter; clicking them does nothing |
+| N3 | Right-click → Open NetLimiter | NetLimiter's window opens (no administrator prompt from BandBar) |
+| N4 | Right-click → Releases page | The browser opens the project's Releases page |
+| N5 | With the Blocker set to ask, start a program that NetLimiter has not seen | The bar turns amber within a second or two, the tooltip counts the waiting connections, a click opens NetLimiter; answering there turns the bar back to normal. BandBar never answers |
+| N6 | Disconnect (stop the NetLimiter service) and open the menu | Zone shows "not connected"; the three states are hidden |
+
 ### Full screen and games
 
 | # | Steps | Expected |
@@ -121,3 +132,4 @@ The log (`bandbar.log`, next to the executable) should contain no `WARN` or `ERR
 | 0.1.5 | Windows 11, NetLimiter 5.3 | B2, B7, B8 passed (text follows light/dark mode and accent colour without restart); normal use unaffected. T1: a brief flicker remains on Start and taskbar right-click (known limitation; check interval shortened from 50 to ~16 ms afterwards). I1–I5 pending on the published build; later I1 and I4 passed (clean install of the published setup, checksums match) |
 | 0.2.0 | Windows 11, NetLimiter 5.3 | Automated checks and 94 unit tests pass; the build writes nothing to the user profile or temp folder. Passed: B1, B2, B4, P1–P4, C1 (opens in Notepad), C2, C3 (warning logged, settings kept, the fix applied at once), F1–F2, F6, T1 (after the desktop-click fix the bar is back within ~50 ms; hidden while Start is open, measured as a Windows band change). Pending: C4 (drag after a fix), C5, P5, H1–H3, T8. P6 needs a tool that moves the Windows 11 taskbar to a side |
 | 0.3.0 | Windows 11, NetLimiter 5.3 | Automated checks and 123 unit tests pass. Manual tests pending (F5, F7–F10; F7 needs a second monitor) |
+| 0.4.0 | Windows 11, NetLimiter 5.3 | Automated checks and 125 unit tests pass. Manual tests pending (N1–N6) |

@@ -27,7 +27,8 @@ for the full model.
 
 - Runs with the user's normal rights; never requests or uses administrator rights.
 - Opens no network connection and listens on no port. It talks only to the local NetLimiter service over its named
-  pipe, with NetLimiter's read-only Monitor right.
+  pipe, with NetLimiter's read-only Monitor right, and only reads: it never changes NetLimiter's settings or
+  features and never answers Blocker requests.
 - Loads NetLimiter's API only from the installed NetLimiter, only an allow-list of eight assemblies, each verified
   with Authenticode against the expected publisher before it is loaded; exits if an API assembly is loaded from
   anywhere else.
@@ -35,8 +36,10 @@ for the full model.
   handle to another process. The optional program list reads names from Windows' process list; the optional
   hotkey is a regular `RegisterHotKey` hotkey.
 - Writes only to its own folder (or `%LocalAppData%\BandBar`), never to the registry or other programs' files.
-- Starts another program only when the user picks a menu item, and only fixed targets (its own settings file in
-  the user's editor, its own folder in File Explorer); never elevated.
+- Starts another program only when the user asks for it (a menu item, or a click on the bar during a Blocker
+  alert), and only fixed targets: its own settings file in the user's editor, its own folder in File Explorer,
+  NetLimiter's own window (only if its signature is valid and from Locktime Software) and the project's Releases
+  page in the browser; never elevated.
 - Logs mask user names, profile paths and the computer name.
 
 ## Verifying a download
@@ -44,7 +47,7 @@ for the full model.
 Every release publishes `SHA256SUMS.txt`. In PowerShell:
 
 ```powershell
-Get-FileHash .\BandBar-Setup-0.3.0.exe -Algorithm SHA256
+Get-FileHash .\BandBar-Setup-0.4.0.exe -Algorithm SHA256
 ```
 
 Compare the result with the line for that file in `SHA256SUMS.txt`. Releases are built by GitHub Actions from the

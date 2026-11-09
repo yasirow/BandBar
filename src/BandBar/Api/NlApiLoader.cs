@@ -50,6 +50,38 @@ namespace BandBar.Api
 
         public static ApiLoadFailure LastFailure { get; private set; }
 
+        /// <summary>
+        /// NetLimiter's own client program, for the menu's "Open NetLimiter" (docs/DESIGN.md §7.4): from the folder
+        /// found for the API, and only with a valid Authenticode signature from Locktime — the same check as for the API
+        /// files. Null otherwise (the reason is logged).
+        /// </summary>
+        public static string VerifiedClientAppPath()
+        {
+            string dir;
+            lock (Gate)
+                dir = GetInstallDir();
+            if (dir == null)
+            {
+                Log.Warn("NetLimiter installation not found; cannot open NetLimiter");
+                return null;
+            }
+
+            string path = Path.GetFullPath(Path.Combine(dir, "NLClientApp.exe"));
+            if (!File.Exists(path))
+            {
+                Log.Warn("NLClientApp.exe not present in the NetLimiter folder");
+                return null;
+            }
+            int trust = Authenticode.Verify(path);
+            string organization = trust == 0 ? Authenticode.GetSignerOrganization(path) : null;
+            if (trust != 0 || !string.Equals(organization, LocktimeOrg, StringComparison.Ordinal))
+            {
+                Log.Warn("NLClientApp.exe not started: signature not valid or not from Locktime (0x" + trust.ToString("X8") + ")");
+                return null;
+            }
+            return path;
+        }
+
         public static void Install()
         {
             AppDomain.CurrentDomain.AssemblyLoad += OnAssemblyLoad;

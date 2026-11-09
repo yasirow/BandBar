@@ -15,6 +15,8 @@ namespace BandBar.Api
     {
         private const int ReadIntervalMs = 1000;
         private const int ReadTimeoutMs = 2000;
+        // Zones and feature states change rarely: read them every tenth reading, or when the menu asks.
+        private const int DetailsEveryReads = 10;
         private static readonly int[] RetryDelaysMs = { 2000, 4000, 8000, 16000, 30000 };
 
         private readonly Action<Reading> publish;
@@ -25,6 +27,11 @@ namespace BandBar.Api
 
         private volatile string zoneFilterId;
         private volatile bool zoneChanged;
+        private volatile bool detailsRequested = true;
+        private int readsSinceDetails;
+        private bool detailsUnavailable;
+        private bool requestsUnavailable;
+        private NlDetails details;
         private volatile bool paused;
         private volatile bool disconnected;
         private INlSession session;
@@ -51,6 +58,9 @@ namespace BandBar.Api
             zoneChanged = true;
             wake.Set();
         }
+
+        /// <summary>Zones and feature states are read again with the next reading (the menu was opened).</summary>
+        public void RequestDetails() => detailsRequested = true;
 
         /// <summary>While paused nothing is read; the idle connection is kept.</summary>
         public void SetPaused(bool value)
@@ -120,6 +130,10 @@ namespace BandBar.Api
                 disconnected = false;
                 session = OpenSession();
                 failedAttempts = 0;
+                // A new session may have other rights: try the menu details and the Blocker count again.
+                detailsUnavailable = requestsUnavailable = false;
+                details = null;
+                detailsRequested = true;
                 return true;
             }
             catch (Exception ex)
@@ -149,20 +163,52 @@ namespace BandBar.Api
                 if (disconnected)
                     throw new CommunicationException("NetLimiter service closed the connection.");
 
-                Task<Rate> read = Task.Run(() => current.Read());
+                bool wantDetails = !detailsUnavailable
+                                   && (detailsRequested || details == null || ++readsSinceDetails >= DetailsEveryReads);
+                bool wantRequests = !requestsUnavailable && details != null && details.BlockerOn;
+
+                Task<ReadResult> read = Task.Run(() => ReadAll(current, wantDetails, wantRequests));
                 if (!read.Wait(ReadTimeoutMs))
                 {
                     read.ContinueWith(t => { _ = t.Exception; }, TaskContinuationOptions.OnlyOnFaulted);
                     throw new TimeoutException("NetLimiter service did not answer within 2 s.");
                 }
 
-                Rate rate = read.Result;
+                ReadResult result = read.Result;
+                Rate rate = result.Rate;
                 if (!rate.ZoneFound && !zoneMissingLogged)
                 {
                     zoneMissingLogged = true;
                     Log.Warn("Zone node missing from the service data; showing 0");
                 }
-                Publish(new Reading(LinkStatus.Connected, rate.Down, rate.Up, current.ZoneName, current.ServiceVersion), null);
+
+                // A refused extra read switches off only that feature for this session; the speed keeps working.
+                if (wantDetails)
+                {
+                    readsSinceDetails = 0;
+                    detailsRequested = false;
+                    if (result.DetailsError == null)
+                        details = result.Details;
+                    else
+                    {
+                        detailsUnavailable = true;
+                        Log.Warn("Zones and feature states unavailable; the menu will not show them", Unwrap(result.DetailsError));
+                    }
+                }
+                int requests = 0;
+                if (wantRequests)
+                {
+                    if (result.RequestsError == null)
+                        requests = result.Requests;
+                    else
+                    {
+                        requestsUnavailable = true;
+                        Log.Warn("Blocker requests unavailable; no Blocker alert", Unwrap(result.RequestsError));
+                    }
+                }
+
+                Publish(new Reading(LinkStatus.Connected, rate.Down, rate.Up, current.ZoneName, current.ServiceVersion,
+                                    zoneId: current.ZoneId, details: details, blockerRequests: requests), null);
                 return true;
             }
             catch (Exception ex)
@@ -173,6 +219,44 @@ namespace BandBar.Api
                 Publish(new Reading(status, detail: cause.GetType().Name), cause);
                 return false;
             }
+        }
+
+        // Runs on a pool thread under the 2-second limit. The speed must succeed; the extras may fail on their own.
+        private static ReadResult ReadAll(INlSession session, bool readDetails, bool readRequests)
+        {
+            var result = new ReadResult { Rate = session.Read() };
+            if (readDetails)
+            {
+                try
+                {
+                    result.Details = session.ReadDetails();
+                }
+                catch (Exception ex)
+                {
+                    result.DetailsError = ex;
+                }
+            }
+            if (readRequests)
+            {
+                try
+                {
+                    result.Requests = session.CountBlockerRequests();
+                }
+                catch (Exception ex)
+                {
+                    result.RequestsError = ex;
+                }
+            }
+            return result;
+        }
+
+        private sealed class ReadResult
+        {
+            public Rate Rate;
+            public NlDetails Details;
+            public Exception DetailsError;
+            public int Requests;
+            public Exception RequestsError;
         }
 
         private void Publish(Reading reading, Exception cause)

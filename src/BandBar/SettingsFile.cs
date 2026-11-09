@@ -27,7 +27,13 @@ namespace BandBar
         /// exist yet is created with every key at its default, so the user finds all of them in it.
         /// </summary>
         /// <returns>False when the file could not be changed (the reason is logged).</returns>
-        public static bool SetNumber(string dataDir, string key, int? value)
+        public static bool SetNumber(string dataDir, string key, int? value) =>
+            SetMember(dataDir, key, "number", value?.ToString(CultureInfo.InvariantCulture));
+
+        /// <summary>Like <see cref="SetNumber"/>, for a text value.</summary>
+        public static bool SetString(string dataDir, string key, string value) => SetMember(dataDir, key, "string", value);
+
+        private static bool SetMember(string dataDir, string key, string type, string text)
         {
             string path = Settings.FilePath(dataDir);
             if (path == null)
@@ -38,7 +44,7 @@ namespace BandBar
                     return false;
 
                 XElement member = root.Elements().FirstOrDefault(e => MemberName(e) == key);
-                if (value == null)
+                if (text == null)
                 {
                     // Already unset (no file, no key, or null): leave the file, or its absence, as it is.
                     if (isNew || member == null || (string)member.Attribute("type") == "null")
@@ -46,18 +52,14 @@ namespace BandBar
                     member.RemoveNodes();
                     member.SetAttributeValue("type", "null");
                 }
+                else if (member == null)
+                {
+                    root.Add(new XElement(key, new XAttribute("type", type), text));
+                }
                 else
                 {
-                    string text = value.Value.ToString(CultureInfo.InvariantCulture);
-                    if (member == null)
-                    {
-                        root.Add(Number(key, text));
-                    }
-                    else
-                    {
-                        member.ReplaceNodes(text);
-                        member.SetAttributeValue("type", "number");
-                    }
+                    member.ReplaceNodes(text);
+                    member.SetAttributeValue("type", type);
                 }
 
                 WriteTree(path, root);

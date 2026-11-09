@@ -124,9 +124,13 @@ For the portable version, exit the bar and delete its folder.
 - **Hover** the bar for details: version, zone, connection status and NetLimiter version.
 - **Drag** the bar with the left mouse button to move it along the taskbar. It stays where you drop it, also after
   a restart.
-- **Right-click** the bar for the menu: *Reset position* (back to its place before the notification area), *Open
-  settings file*, *Open log folder* and *Exit*.
-- The bar shows NetLimiter's **Internet** zone by default.
+- **Right-click** the bar for the menu:
+  - *Zone* — choose which NetLimiter zone the bar shows (the **Internet** zone by default).
+  - *Limiter*, *Blocker*, *Priorities* — ticked when on in NetLimiter (shown only; change them in NetLimiter).
+  - *Open NetLimiter*, *Reset position* (back to its place before the notification area), *Open settings file*,
+    *Open log folder*, *Releases page (GitHub)* and *Exit*.
+- When NetLimiter's **Blocker** has connections waiting for your approval, the bar turns amber; click it to open
+  NetLimiter and answer there. BandBar never answers for you.
 
 | The bar shows | Meaning |
 |---|---|
@@ -194,12 +198,12 @@ install the SDK inside the repository folder, how to create the release packages
 
 | Version | Planned |
 |---|---|
-| 0.4.0 | Menu: choose the zone, open NetLimiter, switch Limiter / Blocker / Priorities (within NetLimiter's own permissions), Blocker request alerts, open the Releases page |
 | 0.5.0 | Taskbars on secondary monitors, light/dark theme refinements, code signing, winget |
 | 1.0.0 | Stable release |
 
 Done: 0.2.0 — drag and remember the position, stacked layout for vertical taskbars, auto-hiding taskbars, settings
-applied without a restart. 0.3.0 — full screen per monitor and at start-up, program list, show/hide hotkey. See
+applied without a restart. 0.3.0 — full screen per monitor and at start-up, program list, show/hide hotkey.
+0.4.0 — zone menu, Limiter/Blocker/Priorities states, Blocker alert, open NetLimiter. See
 [CHANGELOG.md](CHANGELOG.md) for every release.
 
 ## Contributing

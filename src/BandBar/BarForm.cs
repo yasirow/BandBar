@@ -41,6 +41,12 @@ namespace BandBar
         private readonly MenuItem resetPositionItem;
         private readonly MenuItem openSettingsItem;
         private readonly MenuItem openLogFolderItem;
+        private readonly MenuItem zoneMenu;
+        private readonly MenuItem limiterItem;
+        private readonly MenuItem blockerItem;
+        private readonly MenuItem prioritiesItem;
+        // Translucent amber: the Blocker has connections waiting for approval (docs/DESIGN.md §4).
+        private static readonly Color BlockerAlertBackground = Color.FromArgb(0x80, 0xF3, 0x9C, 0x12);
         private readonly Timer repositionTimer;
         private readonly Timer zOrderTimer;
         private readonly Timer settingsReloadTimer;
@@ -110,20 +116,29 @@ namespace BandBar
             resetPositionItem = new MenuItem(Strings.ResetPosition, (s, e) => ResetPosition());
             openSettingsItem = new MenuItem(Strings.OpenSettings, (s, e) => Launcher.OpenSettingsFile(AppPaths.DataDir));
             openLogFolderItem = new MenuItem(Strings.OpenLogFolder, (s, e) => Launcher.OpenLogFolder(AppPaths.DataDir));
+            zoneMenu = new MenuItem(Strings.Zone);
+            zoneMenu.MenuItems.Add(new MenuItem(Strings.NotConnected) { Enabled = false });
+            // Information only: BandBar never switches NetLimiter's features (docs/DESIGN.md §7.1).
+            limiterItem = new MenuItem(Strings.Limiter) { Enabled = false };
+            blockerItem = new MenuItem(Strings.Blocker) { Enabled = false };
+            prioritiesItem = new MenuItem(Strings.Priorities) { Enabled = false };
             menu = new ContextMenu(new[]
             {
-                resetPositionItem,
+                zoneMenu,
                 new MenuItem("-"),
+                limiterItem,
+                blockerItem,
+                prioritiesItem,
+                new MenuItem(Strings.OpenNetLimiter, (s, e) => Launcher.OpenNetLimiter()),
+                new MenuItem("-"),
+                resetPositionItem,
                 openSettingsItem,
                 openLogFolderItem,
+                new MenuItem(Strings.ReleasesPage, (s, e) => Launcher.OpenReleasesPage()),
                 new MenuItem("-"),
                 new MenuItem(Strings.Exit, (s, e) => Close()),
             });
-            menu.Popup += (s, e) =>
-            {
-                resetPositionItem.Enabled = this.settings.AnchorOffsetDip.HasValue;
-                openSettingsItem.Enabled = openLogFolderItem.Enabled = AppPaths.DataDir != null;
-            };
+            menu.Popup += (s, e) => UpdateMenu();
 
             // Coalesces bursts of shell notifications into one reposition; not a polling timer.
             repositionTimer = new Timer { Interval = 100 };
@@ -363,9 +378,12 @@ namespace BandBar
             if (e.Button == MouseButtons.Left)
             {
                 bool moved = dragging;
+                bool clicked = dragArmed && !moved;
                 EndDrag();
                 if (moved)
                     SaveDraggedPosition();
+                else if (clicked && reading.BlockerRequests > 0)
+                    Launcher.OpenNetLimiter(); // a plain click while the Blocker waits for an answer (docs/DESIGN.md §4)
                 return;
             }
             if (e.Button != MouseButtons.Right || dragArmed)
@@ -412,6 +430,55 @@ namespace BandBar
             else
                 Log.Warn("The new position could not be saved; it applies until BandBar exits");
             Reposition();
+        }
+
+        // ---- Menu (docs/DESIGN.md §4) ----
+
+        private void UpdateMenu()
+        {
+            // The menu shows what is known now; ask for fresh zones and states for the next opening.
+            monitor.RequestDetails();
+            resetPositionItem.Enabled = settings.AnchorOffsetDip.HasValue;
+            openSettingsItem.Enabled = openLogFolderItem.Enabled = AppPaths.DataDir != null;
+
+            NlDetails details = reading.Status == LinkStatus.Connected ? reading.Details : null;
+            foreach (MenuItem old in zoneMenu.MenuItems.Cast<MenuItem>().ToList())
+                old.Dispose();
+            if (details == null || details.Zones.Count == 0)
+            {
+                zoneMenu.MenuItems.Add(new MenuItem(Strings.NotConnected) { Enabled = false });
+            }
+            else
+            {
+                foreach (ZoneInfo zone in details.Zones)
+                {
+                    ZoneInfo chosen = zone;
+                    zoneMenu.MenuItems.Add(new MenuItem((zone.Name ?? zone.Id ?? "?").Replace("&", "&&"), (s, e) => SelectZone(chosen))
+                    {
+                        RadioCheck = true,
+                        Checked = zone.Id == reading.ZoneId,
+                    });
+                }
+            }
+
+            limiterItem.Visible = blockerItem.Visible = prioritiesItem.Visible = details != null;
+            limiterItem.Checked = details?.LimiterOn ?? false;
+            blockerItem.Checked = details?.BlockerOn ?? false;
+            prioritiesItem.Checked = details?.PrioritiesOn ?? false;
+        }
+
+        // Saved like a dragged position: only this key changes (docs/DESIGN.md §8.1). The zone's name is not logged.
+        private void SelectZone(ZoneInfo zone)
+        {
+            string id = zone.IsInternet ? null : zone.Id;
+            if (id == settings.ZoneFilterId)
+                return;
+            settings.ZoneFilterId = id;
+            monitor.SetZone(id);
+            if (SettingsFile.SetString(AppPaths.DataDir, "zoneFilterId", id))
+                Log.Info("Zone changed");
+            else
+                Log.Warn("The zone choice could not be saved; it applies until BandBar exits");
         }
 
         private void ResetPosition()
@@ -1096,7 +1163,7 @@ namespace BandBar
             {
                 using (Graphics g = Graphics.FromImage(bitmap))
                 {
-                    g.Clear(settings.BackgroundColor ?? HitTestableClear);
+                    g.Clear(reading.BlockerRequests > 0 ? BlockerAlertBackground : settings.BackgroundColor ?? HitTestableClear);
                     layout.Draw(g, upText, downText,
                         live ? settings.UploadColor : InactiveArrowColor,
                         live ? settings.DownloadColor : InactiveArrowColor,
@@ -1150,7 +1217,10 @@ namespace BandBar
         private void ApplyReading(Reading r)
         {
             (SpeedText up, SpeedText down) = TextsFor(r);
-            bool changed = !up.Equals(upText) || !down.Equals(downText) || r.Status != reading.Status;
+            bool changed = !up.Equals(upText) || !down.Equals(downText) || r.Status != reading.Status
+                           || (r.BlockerRequests > 0) != (reading.BlockerRequests > 0);
+            if (r.BlockerRequests > 0 && reading.BlockerRequests == 0)
+                Log.Info("The Blocker has connections waiting for approval");
             reading = r;
             upText = up;
             downText = down;
@@ -1176,6 +1246,8 @@ namespace BandBar
                 sb.Append('\n').Append(reading.Detail);
             if (Program.IsElevated)
                 sb.Append('\n').Append(Strings.Elevated);
+            if (reading.BlockerRequests > 0)
+                sb.Append('\n').Append(Strings.BlockerWaiting(reading.BlockerRequests));
             sb.Append('\n').Append(Strings.DragHint);
 
             string text = sb.ToString();
